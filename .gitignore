@@ -1,0 +1,15 @@
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Dados de entrada e resultados ficam só no computador (fontes no README)
+dados/
+resultados/
+vetores/
+*.aux.xml
+
+# Sistema
+desktop.ini
+Thumbs.db
+.DS_Store

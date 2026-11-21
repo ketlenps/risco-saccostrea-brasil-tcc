@@ -1,0 +1,3054 @@
+# ==============================================================================
+# RISCO DE INVASÃO DA OSTRA EXÓTICA Saccostrea cucullata NA COSTA BRASILEIRA
+# Modelagem de adequabilidade de habitat – TCC 2 (Oceanologia / FURG)
+# ==============================================================================
+#
+# IDEIA CENTRAL
+#
+#   1) ADEQUABILIDADE = o quanto o AMBIENTE permite que a ostra viva ali.
+#      É calibrada com registros do mundo todo (área nativa + áreas invadidas).
+#      No Brasil a espécie ainda está se espalhando, então os registros daqui
+#      mostram onde ela já chegou, e não todos os lugares onde ela conseguiria
+#      viver. Só variáveis ambientais entram aqui.
+#
+#   2) PRESSÃO ANTRÓPICA = o quanto portos, plataformas e poços podem trazer
+#      larvas e adultos incrustados (água de lastro, cascos, estruturas).
+#
+#   3) RISCO = ADEQUABILIDADE × PRESSÃO.
+#
+#   Os três cenários do projeto do TCC 1 (I ambiental, II antrópico,
+#   III ambos) são rodados num módulo à parte, só com os registros do Brasil,
+#   para comparação (Módulo 10).
+#
+# MÓDULOS
+#
+#    0  Configuração (caminhos e parâmetros)  <- é aqui que você mexe
+#    1  Funções auxiliares
+#    2  Ocorrências: Brasil + literatura + GBIF, limpeza e revisão
+#    3  Camadas ambientais (Bio-ORACLE v3, superfície, 2000–2020)
+#    4  Faixa costeira (área de calibração) e ajuste das ocorrências
+#    5  Filtro espacial (no máximo uma ocorrência a cada 10 km)
+#    6  Seleção de variáveis (prioridade ecológica + correlação + VIF)
+#    7  Modelo ambiental global: pseudo-ausências, blocos espaciais,
+#       GLM + GBM + RFd + MAXNET e ensemble
+#    8  Projeção na costa brasileira, incerteza, MESS e limites fisiológicos;
+#       8.1 substrato dos registros (natural × artificial)
+#    9  Teste de transferência: calibra SEM o Brasil e testa NO Brasil
+#   10  Comparação dos três cenários do TCC 1 (só Brasil)
+#   11  Pressão antrópica e mapa de risco
+#   12  Risco por infraestrutura (com distância ao registro mais próximo),
+#       mapas nacional, de densidade de poços e regionais ampliados,
+#       e risco por estado e por região
+#   12B Manguezais e marismas: área perto de costa adequada e em risco
+#   13  Mudanças climáticas: projeção nos cenários SSP do Bio-ORACLE v3
+#   14  Registro da sessão
+#
+# PACOTES: terra, sf, biomod2 (testado na 4.3.4.6), geobr, maxnet, gbm,
+#          randomForest, ggplot2. Opcionais: rgbif (baixar o GBIF), jsonlite
+#          (baixar o OBIS) e biooracler (baixar o Bio-ORACLE).
+#
+# ==============================================================================
+
+
+# ==============================================================================
+# MÓDULO 0 – CONFIGURAÇÃO
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 0.1 – Pastas
+# ------------------------------------------------------------------------------
+
+# Pasta do projeto: a pasta deste repositório. Abra o R nela, ou use
+# setwd("caminho/para/risco-saccostrea-brasil-tcc"), antes de rodar.
+PASTA_PROJETO <- getwd()
+
+# Biblioteca só do TCC (06/11/2026). O biomod2 4.3-4-8, instalado no Linux em
+# 28/10 (pelo script do PDPetro), falha ao montar o ensemble com 3 conjuntos de
+# pseudo-ausências ("não é possível abrir a conexão" em proj_tmp_…). Esta pasta
+# tem o biomod2 4.3-4-6, o mesmo da rodada v3. Reinicie o R antes do Source.
+BIBLIOTECA_TCC <- file.path(Sys.getenv("HOME"), "R", "biblioteca_tcc")
+if (dir.exists(BIBLIOTECA_TCC)) .libPaths(c(BIBLIOTECA_TCC, .libPaths()))
+
+PASTA_DADOS   <- file.path(PASTA_PROJETO, "dados")
+PASTA_OCORR   <- file.path(PASTA_DADOS, "ocorrencias")
+PASTA_AMB     <- file.path(PASTA_DADOS, "ambientais")
+PASTA_ANTR    <- file.path(PASTA_DADOS, "antropicas")
+PASTA_HAB     <- file.path(PASTA_DADOS, "habitats")
+PASTA_RES     <- file.path(PASTA_PROJETO, "resultados")
+PASTA_FIG     <- file.path(PASTA_RES, "figuras")
+PASTA_MAPAS   <- file.path(PASTA_FIG, "mapas_finais")
+PASTA_TAB     <- file.path(PASTA_RES, "tabelas")
+PASTA_RASTER  <- file.path(PASTA_RES, "rasters")
+PASTA_MODELOS <- file.path(PASTA_RES, "biomod2")
+PASTA_SALVOS  <- file.path(PASTA_RES, "etapas_salvas")
+
+# ETAPAS SALVAS
+# Cada etapa demorada (faixa costeira, modelos, ensembles, projeções,
+# distâncias) é gravada em PASTA_SALVOS assim que termina. Se o computador
+# desligar ou o R travar, rode o script de novo: as etapas prontas são só
+# carregadas, e o trabalho continua de onde parou.
+# Se você mudar um parâmetro ou os dados de entrada de uma etapa, ela é
+# refeita sozinha (o script compara uma "assinatura" do que foi usado).
+#   REFAZER_TUDO <- TRUE  → ignora tudo o que foi salvo e recalcula
+#   Para refazer uma etapa só, apague o arquivo dela em PASTA_SALVOS.
+# ATENÇÃO: não apague a pasta resultados/biomod2 – os modelos salvos dependem dela.
+REFAZER_TUDO <- FALSE
+
+
+# ------------------------------------------------------------------------------
+# 0.2 – Arquivos de entrada
+# ------------------------------------------------------------------------------
+
+# Registros do Brasil (o mesmo arquivo do script do PDPetro).
+# Precisa ter colunas de longitude e latitude (aceita vírgula decimal).
+ARQ_OCORR_BRASIL <- file.path(PASTA_OCORR, "Levantamentos_Ocorrencias_Saccostrea.csv")
+
+# Registros da literatura (opcional): área nativa, WRiMS, i3n, Bioinvasão Brasil.
+# Colunas mínimas: lon, lat. Se existir uma coluna "pais" (código de 2 letras),
+# ela é usada para separar Brasil e exterior.
+ARQ_OCORR_LITERAT <- file.path(PASTA_OCORR, "ocorrencias_literatura.csv")
+
+# Registros do GBIF (baixados no Módulo 2 se BAIXAR_GBIF = TRUE)
+ARQ_GBIF_BRUTO <- file.path(PASTA_OCORR, "gbif_bruto.csv")
+
+# Registros do OBIS (baixados no Módulo 2 se BAIXAR_OBIS = TRUE). Muitos
+# conjuntos de dados estão nos dois (GBIF e OBIS); as repetições somem no
+# Módulo 3, que deixa um registro por célula.
+ARQ_OBIS_BRUTO <- file.path(PASTA_OCORR, "obis_bruto.csv")
+
+# Registros a excluir depois da revisão com a orientadora (opcional).
+# Uma coluna "id" com os ids da tabela 01_ocorrencias_para_revisar.csv.
+ARQ_EXCLUIR <- file.path(PASTA_OCORR, "registros_excluir.csv")
+
+# Infraestruturas. Aceita .csv (colunas de longitude e latitude) ou arquivo
+# espacial (.shp, .gpkg, .kml). Pode usar direto os arquivos oficiais:
+#   portos      → shapefile "Instalações Portuárias Outorgadas" da ANTAQ
+#   plataformas → dados-abertos-plataformas-operacao.csv da ANP
+#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = "M")
+# Pontos em terra longe da costa (portos fluviais) são descartados antes do Módulo 10.
+# Para cada tipo, o script usa o PRIMEIRO arquivo da lista que existir na pasta.
+# Prefira nomes sem acento (ex.: pocos_finall.csv): acentos em nomes de arquivo
+# costumam estragar ao passar um .zip do Windows para o Linux.
+primeiro_existente <- function(...) {
+  opcoes <- c(...)
+  existentes <- opcoes[file.exists(opcoes)]
+  if (length(existentes) > 0) existentes[1] else opcoes[1]
+}
+ARQ_INFRA <- c(
+  portos      = primeiro_existente(file.path(PASTA_ANTR, "Portos.shp"),
+                                   file.path(PASTA_ANTR, "portos_costeiros_finall.csv")),
+  plataformas = primeiro_existente(file.path(PASTA_ANTR, "plataformas_finalll.csv"),
+                                   file.path(PASTA_ANTR, "dados-abertos-plataformas-operacao.csv")),
+  pocos       = primeiro_existente(file.path(PASTA_ANTR, "pocos_finall.csv"),
+                                   file.path(PASTA_ANTR, "poços_finall.csv"),
+                                   file.path(PASTA_ANTR, "tabela-pocos.csv"))
+)
+
+# Polígonos dos campos de produção da ANP (opcional). Só aparecem nos mapas.
+ARQ_CAMPOS <- file.path(PASTA_ANTR, "campos_producao.shp")
+
+# Linha da ZEE / 200 milhas náuticas (opcional). Só aparece no mapa da área de
+# estudo. Pode ser a do script do PDPetro ("BR-200M (Line).shp"), renomeada.
+ARQ_ZEE <- file.path(PASTA_DADOS, "limites", "zee.shp")
+
+
+# ------------------------------------------------------------------------------
+# 0.3 – Parâmetros
+# ------------------------------------------------------------------------------
+
+# Grafia aceita no WoRMS e no GBIF (com dois "c"). "S. cucullata" leva ao mesmo
+# táxon no GBIF (chave 2286098), então tanto faz para o download.
+ESPECIE <- "Saccostrea cuccullata"
+SEMENTE <- 123
+
+# Downloads
+BAIXAR_GBIF      <- TRUE  # FALSE = usa o gbif_bruto.csv já baixado
+BAIXAR_OBIS      <- TRUE  # FALSE = usa o obis_bruto.csv já baixado
+BAIXAR_BIOORACLE <- TRUE  # FALSE = usa os .tif já salvos em dados/ambientais
+FATOR_AGREGACAO  <- 1     # 1 = 0,05° (original); 2 = 0,1° (mais rápido para testes)
+
+# Ocorrências
+INCERTEZA_MAX_M <- 10000  # descarta registros do GBIF e do OBIS com incerteza maior que 10 km
+ANO_MIN         <- 1950
+DIST_AJUSTE_KM  <- 15     # registro em célula sem dado (estuário) é movido até 15 km
+DIST_FILTRO_KM  <- 10     # distância mínima entre ocorrências
+
+# Área de calibração: faixa costeira
+FAIXA_COSTEIRA_CEL <- 6   # 6 células × 0,05° ≈ 30 km a partir da linha de costa
+
+# Seleção de variáveis
+# Ordem = importância ecológica esperada para uma ostra de entremarés:
+# limites térmicos da água, salinidade mínima (estuário), temperatura do ar
+# (exposição na maré baixa), alimento, hidrodinâmica.
+# A temperatura do ar costuma ser muito correlacionada com a da água; se for,
+# fica a que vem primeiro nesta lista. Para priorizar o ar, coloque "ar_max"
+# e "ar_min" antes de "sst_max" e "sst_min".
+# Ordem de prioridade (decisão de 24/10/2026): a temperatura mínima do ar vem
+# primeiro (a ostra é de entremarés e fica exposta ao ar na maré baixa; com o
+# preenchimento das baías, sua correlação com sst_max passou de 0,698 para
+# 0,712 e ela saía do modelo). A batimetria vem logo depois.
+PRIORIDADE_VARIAVEIS <- c("ar_min", "batimetria", "sst_max", "sst_min", "sal_min",
+                          "ar_max", "chl_log", "vel_mean", "sal_mean", "sst_mean")
+LIMIAR_CORRELACAO <- 0.7
+VIF_MAX           <- 5
+
+# Modelagem
+MODELOS          <- c("GLM", "GBM", "RFd", "MAXNET")  # RFd = Random Forest com sub-amostragem balanceada
+METRICAS         <- c("TSS", "AUCroc", "BOYCE")
+N_PA_REP         <- 3     # conjuntos de pseudo-ausências
+N_PA_MIN         <- 1000
+PA_POR_PRESENCA  <- 10    # nº de pseudo-ausências = max(N_PA_MIN, 10 × nº de presenças)
+K_BLOCOS         <- 5     # blocos espaciais do modelo global
+TAM_BLOCO_GRAUS  <- 5     # lado de cada bloco (graus)
+K_BLOCOS_BRASIL  <- 4     # faixas de latitude no modelo só do Brasil
+TSS_MIN_ENSEMBLE <- 0.6   # modelos com TSS de validação abaixo disso ficam fora do ensemble
+
+# Área de projeção
+BUFFER_BRASIL_KM <- 150   # inclui as ilhas oceânicas próximas da costa
+
+# Mapas do oceano inteiro (decisão de 24/10/2026): os mapas de adequabilidade,
+# incerteza, MESS e clima mostram o modelo projetado em todo o mar desta caixa.
+# As ESTATÍSTICAS (porcentagens, risco, infraestruturas, manguezais) continuam
+# só na faixa costeira, onde o modelo foi calibrado. Longe da costa o valor diz
+# apenas se a água de superfície seria adequada (relevante para plataformas).
+# Lagoas, baías fechadas e estuários sem dado no Bio-ORACLE (Lagoa dos Patos,
+# Guanabara, Paranaguá...) não podem ser modelados: ficam sem valor.
+MAPA_OCEANO     <- TRUE
+EXTENSAO_OCEANO <- c(-75, -25, -40, 8)   # lon mín, lon máx, lat mín, lat máx
+
+# Baías, estuários e lagoas (decisão de 24/10/2026). O Bio-ORACLE v3 não tem
+# dado em muitas baías e lagoas (Lagoa dos Patos, Mirim, Guanabara, Paranaguá,
+# Santos...). Com PREENCHER_BAIAS = TRUE, as camadas ambientais são estendidas
+# a partir das células de mar vizinhas para dentro dessas células de água
+# (linha de costa e lagoas do GSHHG). Vale para a calibração, a projeção e o
+# clima. São valores ESTIMADOS por extensão do mar: diga isso no texto (o
+# Bio-ORACLE v2, usado no PDPetro, fazia o mesmo tipo de extrapolação).
+PREENCHER_BAIAS <- TRUE
+ARQ_GSHHG_TERRA <- file.path(PASTA_DADOS, "limites", "gshhg", "GSHHS_h_L1.shp")  # costa
+ARQ_GSHHG_LAGOS <- file.path(PASTA_DADOS, "limites", "gshhg", "GSHHS_h_L2.shp")  # lagos e lagoas
+LIMIAR_AGUA     <- 0.3    # fração mínima de água para a célula ser preenchida
+DIST_MAX_BAIAS_KM <- 100  # só preenche água a até 100 km do mar com dado (não sobe rios)
+# Lagos e lagoas FECHADOS, sem ligação com o mar (nível 2 do GSHHG), ficam FORA
+# do preenchimento (decisão de 06/11/2026): são de água doce (Lagoa Mirim,
+# Mangueira, Itapeva, represas Billings e Guarapiranga, lagos do Marajó...) e
+# receberiam a salinidade do mar por extensão, o que contraria o limite de
+# salinidade da espécie (LIMITES_FISIOLOGICOS). Baías, estuários e lagoas ligadas
+# ao oceano (Patos, Peixe, Guanabara, Paranaguá, Todos os Santos, Mundaú...)
+# continuam preenchidas. Exceção: lagoas que o GSHHG trata como fechadas, mas
+# que se ligam ao mar por canais e são salgadas ou salobras (RJ).
+INCLUIR_LAGOS_FECHADOS <- FALSE
+LAGOAS_LIGADAS_AO_MAR <- data.frame(
+  nome = c("Araruama", "Saquarema", "Maricá"),
+  lon  = c(-42.20, -42.53, -42.84),
+  lat  = c(-22.87, -22.92, -22.95))
+# Lagoa dos Patos (decisão de 18/11/2026): só o ESTUÁRIO, ao sul da Ponta da
+# Feitoria (~31°41' S), é preenchido. O resto da lagoa e o Guaíba são de água
+# doce na maior parte do ano (Seeliger et al., 1998) e, preenchidos a partir do
+# mar, apareciam como adequados (salinidade do mar por extensão). O polígono foi
+# tirado do GSHHG em resolução máxima (qgis/recorte_lagoa_dos_patos.py).
+# NULL = preencher a lagoa inteira, como na versão 4.
+ARQ_AGUA_EXCLUIDA <- file.path(PASTA_DADOS, "limites", "lagoa_patos_sem_estuario.gpkg")
+
+# Pressão e risco
+DECAIMENTO_KM   <- 50     # a 50 km de uma infraestrutura, a pressão cai para 37 %
+PESOS_PRESSAO   <- c(portos = 1, plataformas = 1, pocos = 1)
+BUFFER_INFRA_KM <- 10     # raio em volta de cada infraestrutura para ler a adequabilidade
+
+# Mapas das infraestruturas
+DIST_REGISTRO_KM     <- 50       # "perto de um registro conhecido" = até 50 km
+INFRA_COMO_DENSIDADE <- "pocos"  # tipos mostrados como densidade, e não como pontos
+RES_DENSIDADE_GRAUS  <- 0.25     # célula do mapa de densidade (0,25° ≈ 28 km)
+
+# Recortes regionais ampliados (graus decimais)
+REGIOES_ZOOM <- data.frame(
+  arquivo = c("norte", "nordeste", "baia_todos_santos", "campos_santos", "sul"),
+  titulo  = c("Norte (AP–PA–MA)", "Nordeste setentrional (CE–PE)",
+              "Baía de Todos os Santos (BA)", "Bacias de Campos e Santos (ES–RJ–SP)",
+              "Sul (PR–SC)"),
+  lon_min = c(-51.0, -41.0, -39.6, -48.5, -49.2),
+  lon_max = c(-41.0, -34.5, -37.6, -39.0, -47.3),
+  lat_min = c( -3.5,  -8.6, -14.0, -25.5, -28.6),
+  lat_max = c(  4.5,  -2.0, -12.2, -20.0, -25.0)
+)
+
+# Limites fisiológicos para a validação qualitativa (Módulo 8).
+# Preencha com limites de tolerância de ADULTOS publicados na literatura e cite.
+# Atenção: Marcelino et al. (2023) testaram só larvas, entre 24–34 °C e
+# salinidade 30–40; isso não define os limites da espécie.
+# Deixe NA para pular.
+LIMITES_FISIOLOGICOS <- c(sst_min = 4.8, sst_max = 40, sal_min = 15)
+
+# Mudanças climáticas (Módulo 13): o mesmo modelo é projetado nas camadas
+# futuras do Bio-ORACLE v3 (não há novo ajuste). Cenários disponíveis:
+# ssp119, ssp126, ssp245, ssp370, ssp460, ssp585. Décadas: 2020 a 2090.
+CENARIOS_CLIMA <- c("ssp245", "ssp585")  # intermediário e pessimista
+DECADAS_CLIMA  <- c(2050, 2090)          # 2050 = média de 2050–2060; 2090 = 2090–2100
+
+# Ambientes de alta importância ecológica (Módulo 12.5): polígonos (.shp, .gpkg).
+# Manguezais: Atlas dos Manguezais do Brasil (ICMBio 2018), arquivo Mangues.shp.
+# Marismas: não há mapa nacional pronto (ver o guia de dados). Se não tiver, deixe
+# o arquivo de fora: o script segue sem ele.
+ARQ_HABITATS <- c(
+  manguezais = file.path(PASTA_HAB, "Mangues.shp"),
+  marismas   = file.path(PASTA_HAB, "marismas.shp")
+)
+RAIO_HABITAT_CEL <- 2  # habitat a até 2 células (~11 km) da faixa costeira recebe o valor dela
+
+# Processamento em paralelo no biomod2 (núcleos do processador).
+# Funciona em Linux e macOS (o computador do laboratório); no Windows o
+# biomod2 avisa e usa 1 núcleo. Padrão: todos os núcleos menos 1, até 8.
+# Até 4 núcleos: com 8, a memória do computador do laboratório (15 GB) chegou
+# a 1,3 GB livres na calibração e acabou nas projeções (24/10/2026).
+NUCLEOS <- max(1, min(4, parallel::detectCores() - 1))
+# Projeções no oceano inteiro (~470 mil células): cada núcleo do biomod2 leva
+# uma cópia dos dados, e com 8 núcleos a memória do computador do laboratório
+# acabou (24/10/2026). Menos núcleos = mais devagar, mas com memória segura.
+NUCLEOS_OCEANO <- min(NUCLEOS, 2)
+
+# Mapas finais (ggplot, com rosa dos ventos, escala e legenda), para o TCC.
+# Paleta da adequabilidade: "turbo" (azul-marinho = baixa → vermelho escuro = alta),
+# a mesma dos mapas de raster no QGIS.
+PALETA_MAPAS <- c("#30123B", "#455BCD", "#3E9BFE", "#18D6CB", "#46F884", "#A2FC3C",
+                  "#E1DD37", "#FEA632", "#F05B12", "#C42503", "#7A0403")  # = viridisLite::turbo(11)
+
+# Módulos opcionais
+RODAR_TRANSFERENCIA <- TRUE
+RODAR_CENARIOS_BR   <- TRUE
+RODAR_RISCO         <- TRUE
+RODAR_CLIMA         <- TRUE
+
+
+# ------------------------------------------------------------------------------
+# 0.4 – Pacotes
+# ------------------------------------------------------------------------------
+
+pacotes <- c("terra", "sf", "biomod2", "geobr", "maxnet", "gbm",
+             "randomForest", "ggplot2", "ggspatial", "rnaturalearth", "rnaturalearthdata")
+if (NUCLEOS > 1 && .Platform$OS.type != "windows") pacotes <- c(pacotes, "doParallel")
+
+# Fora do RStudio (ex.: Rscript no terminal do Linux) o R não tem um
+# repositório definido e install.packages() falha. Aqui fica o CRAN oficial.
+if (is.null(getOption("repos")) || "@CRAN@" %in% getOption("repos")) {
+  options(repos = c(CRAN = "https://cloud.r-project.org"))
+}
+
+faltando <- pacotes[!vapply(pacotes, requireNamespace, logical(1), quietly = TRUE)]
+
+# O geobr atual (2.x) exige R 4.4 ou mais novo. Em R mais antigo (o Linux do
+# laboratório tem R 4.3), instala a versão 1.9.1, do arquivo do CRAN, que
+# funciona igual para o script.
+if ("geobr" %in% faltando && getRversion() < "4.4.0") {
+  install.packages("https://cran.r-project.org/src/contrib/Archive/geobr/geobr_1.9.1.tar.gz",
+                   repos = NULL, type = "source")
+  faltando <- setdiff(faltando, "geobr")
+}
+
+if (length(faltando) > 0) {
+  install.packages(faltando)
+}
+
+suppressPackageStartupMessages({
+  library(terra)
+  library(sf)
+  library(biomod2)
+})
+
+set.seed(SEMENTE)
+
+for (p in c(PASTA_OCORR, PASTA_AMB, PASTA_ANTR, PASTA_HAB, PASTA_FIG, PASTA_MAPAS, PASTA_TAB,
+            PASTA_RASTER, PASTA_MODELOS, PASTA_SALVOS)) {
+  dir.create(p, recursive = TRUE, showWarnings = FALSE)
+}
+
+
+# ==============================================================================
+# MÓDULO 1 – FUNÇÕES AUXILIARES
+# ==============================================================================
+
+etapa <- function(...) {
+  cat("\n", strrep("=", 70), "\n", ..., "\n", strrep("=", 70), "\n", sep = "")
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.0 – Etapas salvas (para não recalcular depois de uma queda)
+# ------------------------------------------------------------------------------
+
+# Resumo leve de um objeto, usado na assinatura: rasters entram pelo nome,
+# extensão e resolução (não pelos valores, para ficar rápido).
+resumir_para_assinatura <- function(x) {
+  if (inherits(x, "SpatRaster")) {
+    return(list("SpatRaster", names(x), as.vector(terra::ext(x)), terra::res(x)))
+  }
+  if (inherits(x, "SpatVector")) return(list("SpatVector", terra::crds(x)))
+  if (is.function(x)) return(deparse(x))
+  if (is.list(x) && !is.data.frame(x)) return(lapply(x, resumir_para_assinatura))
+  x
+}
+
+assinatura <- function(x) {
+  arq <- tempfile()
+  writeBin(serialize(resumir_para_assinatura(x), NULL), arq)
+  on.exit(unlink(arq))
+  unname(as.character(tools::md5sum(arq)))
+}
+
+# Rasters não podem ir direto para um .rds (são ponteiros para a memória do
+# terra): cada um vira um .tif na pasta de etapas salvas.
+guardar_rasters <- function(x, prefixo) {
+  contador <- 0
+  guardar <- function(obj) {
+    if (inherits(obj, "SpatRaster")) {
+      contador <<- contador + 1
+      arquivo <- paste0(prefixo, "_raster", contador, ".tif")
+      terra::writeRaster(obj, file.path(PASTA_SALVOS, arquivo), overwrite = TRUE)
+      return(structure(list(arquivo = arquivo), class = "raster_salvo"))
+    }
+    if (inherits(obj, "SpatVector")) return(terra::wrap(obj))
+    if (is.list(obj) && !is.data.frame(obj) && !isS4(obj)) {
+      obj[] <- lapply(obj, guardar)
+    }
+    obj
+  }
+  guardar(x)
+}
+
+recuperar_rasters <- function(x) {
+  if (inherits(x, "raster_salvo")) return(terra::rast(file.path(PASTA_SALVOS, x$arquivo)))
+  if (inherits(x, "PackedSpatVector")) return(terra::unwrap(x))
+  if (is.list(x) && !is.data.frame(x) && !isS4(x)) {
+    x[] <- lapply(x, recuperar_rasters)
+  }
+  x
+}
+
+# salvo("nome", { cálculo demorado }, depende_de = list(...))
+#   - se já existe uma etapa salva com a mesma assinatura: carrega e pronto;
+#   - senão: calcula, grava em PASTA_SALVOS e devolve o resultado.
+# O cálculo entre chaves só roda quando precisa (avaliação preguiçosa do R).
+# A gravação usa um arquivo temporário: se o computador desligar no meio,
+# a etapa salva anterior não fica corrompida.
+salvo <- function(nome, calculo, depende_de = list()) {
+  arquivo <- file.path(PASTA_SALVOS, paste0(nome, ".rds"))
+  assin <- assinatura(depende_de)
+
+  if (!REFAZER_TUDO && file.exists(arquivo)) {
+    guardado <- tryCatch(readRDS(arquivo), error = function(e) NULL)
+    if (!is.null(guardado) && identical(guardado$assinatura, assin)) {
+      cat(">> Etapa salva carregada:", nome, "(feita em",
+          format(guardado$quando, "%d/%m/%Y %H:%M"), ")\n")
+      return(recuperar_rasters(guardado$objeto))
+    }
+    cat(">> Etapa", nome, "mudou (parâmetros ou dados novos): recalculando.\n")
+  }
+
+  inicio <- Sys.time()
+  objeto <- calculo
+  temporario <- paste0(arquivo, ".tmp")
+  saveRDS(list(assinatura = assin, quando = Sys.time(),
+               objeto = guardar_rasters(objeto, nome)), temporario)
+  unlink(arquivo)
+  file.rename(temporario, arquivo)
+  cat(">> Etapa salva:", nome, "(", format(round(Sys.time() - inicio, 1)), ")\n")
+  objeto
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.1 – Leitura de tabelas de coordenadas
+# ------------------------------------------------------------------------------
+
+achar_coluna <- function(df, opcoes, obrigatoria = TRUE) {
+  i <- match(tolower(opcoes), tolower(names(df)))
+  i <- i[!is.na(i)][1]
+  if (is.na(i)) {
+    if (!obrigatoria) return(NA_character_)
+    stop("Coluna não encontrada. Procurei: ", paste(opcoes, collapse = ", "))
+  }
+  names(df)[i]
+}
+
+para_numero <- function(x) {
+  x <- trimws(as.character(x))
+  # Sinal de menos tipográfico (−, comum ao copiar de PDF ou do Word) vira hífen
+  x <- gsub("\u2212|\u2013", "-", x)
+  as.numeric(gsub(",", ".", x))
+}
+
+ler_tabela <- function(arquivo) {
+  primeira <- readLines(arquivo, n = 1, warn = FALSE)
+  sep <- if (grepl(";", primeira)) ";" else ","
+  df <- tryCatch(
+    read.csv(arquivo, sep = sep, stringsAsFactors = FALSE, check.names = FALSE,
+             fileEncoding = "UTF-8-BOM"),
+    error = function(e) NULL, warning = function(w) NULL
+  )
+  if (is.null(df)) {  # planilhas salvas no Excel costumam vir em latin1
+    df <- read.csv(arquivo, sep = sep, stringsAsFactors = FALSE, check.names = FALSE,
+                   fileEncoding = "latin1")
+  }
+  # A ANP põe os nomes das colunas entre colchetes: [LATITUDE]
+  names(df) <- trimws(gsub("^\\[|\\]$", "", names(df)))
+  df
+}
+
+# Lê pontos de uma tabela (.csv) ou de um arquivo espacial (.shp, .gpkg,
+# .kml, .geojson). Polígonos e linhas viram o ponto central.
+ler_coordenadas <- function(arquivo, fonte) {
+  if (grepl("\\.(shp|gpkg|kml|geojson)$", arquivo, ignore.case = TRUE)) {
+    v <- terra::project(terra::vect(arquivo), "EPSG:4326")
+    if (terra::geomtype(v) != "points") v <- terra::centroids(v, inside = TRUE)
+    xy <- terra::crds(v)
+    ids <- seq_len(nrow(xy))   # número da linha no arquivo original (id estável)
+    # Portos da ANTAQ (decisão de 19/11/2026): o arquivo traz 16 pontos
+    # "Plataforma Marítima" que são só marcadores das bacias sedimentares (um
+    # ponto genérico no meio de cada bacia, sem instalação) e portos de outros
+    # países (Montevidéu). Saem da análise.
+    if (fonte == "portos") {
+      atr <- terra::values(v)
+      fora <- rep(FALSE, nrow(xy))
+      if ("tipo" %in% names(atr))
+        fora <- fora | grepl("^Plataforma Mar", as.character(atr$tipo), useBytes = TRUE)
+      if ("cdbigrama" %in% names(atr))
+        fora <- fora | (!is.na(atr$cdbigrama) & as.character(atr$cdbigrama) != "BR")
+      fora[is.na(fora)] <- FALSE
+      if (any(fora)) message("portos: ", sum(fora), " pontos que não são portos brasileiros ",
+                             "(marcadores de bacias e portos estrangeiros) foram retirados.")
+      xy <- xy[!fora, , drop = FALSE]
+      ids <- ids[!fora]
+    }
+    return(data.frame(id = paste0(fonte, "_", ids), fonte = fonte,
+                      lon = xy[, 1], lat = xy[, 2], pais = NA_character_,
+                      ano = NA_integer_, substrato = NA_character_,
+                      stringsAsFactors = FALSE))
+  }
+
+  df <- ler_tabela(arquivo)
+
+  # Tabela de poços da ANP: fica só com os poços no mar (TERRA_MAR = "M")
+  if ("TERRA_MAR" %in% names(df)) {
+    df <- df[df$TERRA_MAR %in% "M", ]
+  }
+
+  col_lon <- achar_coluna(df, c("lon_dd", "longitude", "lon", "decimalLongitude",
+                                "LONGITUDE_BASE_DD", "x"))
+  col_lat <- achar_coluna(df, c("lat_dd", "latitude", "lat", "decimalLatitude",
+                                "LATITUDE_BASE_DD", "y"))
+  col_pais <- achar_coluna(df, c("pais", "countryCode", "country"), obrigatoria = FALSE)
+  col_subs <- achar_coluna(df, c("substrato", "subs_tipo", "tipo_substrato", "substrate"),
+                           obrigatoria = FALSE)
+
+  data.frame(
+    id    = paste0(fonte, "_", seq_len(nrow(df))),
+    fonte = fonte,
+    lon   = para_numero(df[[col_lon]]),
+    lat   = para_numero(df[[col_lat]]),
+    pais  = if (is.na(col_pais)) NA_character_ else as.character(df[[col_pais]]),
+    ano   = NA_integer_,
+    substrato = if (is.na(col_subs)) NA_character_ else as.character(df[[col_subs]]),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Agrupa o substrato anotado em "artificial" ou "natural". Aceita tanto a
+# classe pronta quanto a descrição (ex.: "marina", "raiz de mangue", "costão").
+classificar_substrato <- function(x) {
+  x <- tolower(chartr("áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ",
+                      "aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC", x))
+  artificial <- "artific|porto|marina|pier|cais|molhe|quebra|estaleiro|boia|plataforma|casco|pilar|concreto|muro|ponte|trapiche|atracadouro"
+  natural <- "natural|costao|rocha|rochoso|mangue|raiz|praia|recife|seixo|cascalho"
+  ifelse(is.na(x) | x == "", NA_character_,
+         ifelse(grepl(artificial, x), "artificial",
+                ifelse(grepl(natural, x), "natural", "outro")))
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.2 – Downloads (GBIF e Bio-ORACLE)
+# ------------------------------------------------------------------------------
+
+baixar_gbif <- function(especie, arquivo) {
+  if (!requireNamespace("rgbif", quietly = TRUE)) install.packages("rgbif")
+
+  chave <- rgbif::name_backbone(name = especie)$usageKey
+  res <- rgbif::occ_data(taxonKey = chave, hasCoordinate = TRUE,
+                         hasGeospatialIssue = FALSE, limit = 20000)
+  d <- as.data.frame(res$data)
+
+  colunas <- c("key", "scientificName", "decimalLongitude", "decimalLatitude",
+               "countryCode", "year", "basisOfRecord",
+               "coordinateUncertaintyInMeters", "institutionCode", "datasetKey")
+  for (cc in setdiff(colunas, names(d))) d[[cc]] <- NA
+
+  write.csv(d[, colunas], arquivo, row.names = FALSE)
+  message(nrow(d), " registros do GBIF salvos em ", arquivo)
+
+  # IMPORTANTE para a versão final do TCC: o GBIF pede que a citação use um
+  # DOI. Para isso, refaça o download com rgbif::occ_download() (precisa de
+  # login no GBIF) e cite o DOI gerado.
+}
+
+baixar_obis <- function(especie, arquivo) {
+  # Baixa direto da API do OBIS, só com o pacote jsonlite. O pacote robis não
+  # é usado porque, no Linux, ele depende de bibliotecas do sistema (fontconfig,
+  # freetype) que exigem sudo para instalar.
+  if (!requireNamespace("jsonlite", quietly = TRUE)) install.packages("jsonlite")
+
+  # O OBIS segue a taxonomia do WoRMS: o nome aceito já traz os registros
+  # cadastrados como "S. cucullata" (sinônimo). Ausências não vêm.
+  colunas <- c("id", "scientificName", "decimalLongitude", "decimalLatitude",
+               "countryCode", "date_year", "basisOfRecord",
+               "coordinateUncertaintyInMeters", "institutionCode", "dataset_id",
+               "absence")
+  url_base <- paste0("https://api.obis.org/v3/occurrence?scientificname=",
+                     utils::URLencode(especie, reserved = TRUE), "&size=5000")
+
+  # A API devolve até 5.000 registros por vez; "after" pede os seguintes.
+  partes <- list()
+  depois <- NULL
+  repeat {
+    url <- if (is.null(depois)) url_base else paste0(url_base, "&after=", depois)
+    pagina <- jsonlite::fromJSON(url)$results
+    if (is.null(pagina) || NROW(pagina) == 0) break
+    pagina <- as.data.frame(pagina)
+    for (cc in setdiff(colunas, names(pagina))) pagina[[cc]] <- NA
+    partes[[length(partes) + 1]] <- pagina[, colunas]
+    if (NROW(pagina) < 5000) break
+    depois <- pagina$id[NROW(pagina)]
+  }
+  d <- do.call(rbind, partes)
+  if (is.null(d)) d <- as.data.frame(setNames(replicate(length(colunas), logical(0), simplify = FALSE), colunas))
+
+  write.csv(d, arquivo, row.names = FALSE)
+  message(nrow(d), " registros do OBIS salvos em ", arquivo)
+
+  # Para a versão final do TCC: cite o OBIS com a data de acesso
+  # (OBIS, 2026. Ocean Biodiversity Information System. https://obis.org).
+}
+
+# Bio-ORACLE v3, camadas de superfície.
+#   Presente: média das décadas 2000–2010 e 2010–2020.
+#   Futuro (Módulo 13): uma década de um cenário SSP.
+# Cada camada: nome no script = c(grupo no Bio-ORACLE, variável).
+# Se o download falhar, baixe manualmente em https://bio-oracle.org e salve
+# como dados/ambientais/<nome>.tif (presente) ou
+# dados/ambientais/futuro/<cenário>_<década>/<nome>.tif (futuro).
+CAMADAS_BIOORACLE <- list(
+  sst_mean = c("thetao", "thetao_mean"),
+  sst_min  = c("thetao", "thetao_min"),
+  sst_max  = c("thetao", "thetao_max"),
+  sal_mean = c("so",     "so_mean"),
+  sal_min  = c("so",     "so_min"),
+  ar_max   = c("tas",    "tas_max"),   # temperatura do ar sobre o mar
+  ar_min   = c("tas",    "tas_min"),
+  chl_mean = c("chl",    "chl_mean"),
+  vel_mean = c("sws",    "sws_mean"),
+  batimetria = c("terrain", "bathymetry_mean")  # profundidade (m, negativa); não muda no tempo
+)
+# Camadas que não mudam com o clima: no futuro, usa-se a do presente
+CAMADAS_ESTATICAS <- "batimetria"
+
+# Nome do conjunto de dados no servidor do Bio-ORACLE
+id_biooracle <- function(grupo, cenario = "baseline") {
+  if (grupo == "terrain") return("terrain_characteristics")   # batimetria (sem tempo)
+  if (cenario != "baseline") return(paste0(grupo, "_", cenario, "_2020_2100_depthsurf"))
+  periodo <- c(thetao = "2000_2019", so = "2000_2019", sws = "2000_2019",
+               chl = "2000_2018", tas = "2000_2020")[[grupo]]
+  paste0(grupo, "_baseline_", periodo, "_depthsurf")
+}
+
+# cenario = "baseline" (presente) ou "ssp245" etc.; decada = 2050 etc. (só no futuro)
+baixar_biooracle <- function(lat_lim, pasta, cenario = "baseline", decada = NULL) {
+  if (!requireNamespace("biooracler", quietly = TRUE)) {
+    stop("Instale o biooracler: remotes::install_github('bio-oracle/biooracler')")
+  }
+  datas <- if (cenario == "baseline") {
+    c("2000-01-01T00:00:00Z", "2010-01-01T00:00:00Z")  # as duas décadas
+  } else {
+    rep(paste0(decada, "-01-01T00:00:00Z"), 2)          # uma década
+  }
+  restricoes <- list(
+    time      = datas,
+    latitude  = lat_lim,
+    longitude = c(-179.975, 179.975)
+  )
+  dir.create(pasta, recursive = TRUE, showWarnings = FALSE)
+  for (nome in names(CAMADAS_BIOORACLE)) {
+    arq <- file.path(pasta, paste0(nome, ".tif"))
+    if (file.exists(arq)) next
+    if (nome %in% CAMADAS_ESTATICAS && cenario != "baseline") next  # usa a do presente
+    if (nome %in% CAMADAS_ESTATICAS) {
+      restricoes$time <- rep("1970-01-01T00:00:00Z", 2)             # data única do servidor
+    } else if (cenario == "baseline") {
+      restricoes$time <- c("2000-01-01T00:00:00Z", "2010-01-01T00:00:00Z")
+    }
+    message("Baixando ", nome, " (", cenario, if (!is.null(decada)) paste0(" ", decada), ") ...")
+    r <- biooracler::download_layers(
+      dataset_id  = id_biooracle(CAMADAS_BIOORACLE[[nome]][1], cenario),
+      variables   = CAMADAS_BIOORACLE[[nome]][2],
+      constraints = restricoes,
+      fmt         = "raster",
+      directory   = tempdir()
+    )
+    r <- terra::app(r, mean, na.rm = TRUE)  # média das décadas pedidas
+    names(r) <- nome
+    terra::time(r) <- NULL
+    terra::writeRaster(r, arq, overwrite = TRUE)
+  }
+}
+
+# Lê as camadas, recorta, agrega e ajusta unidades. É usada igual no presente
+# e no futuro, para as duas épocas ficarem comparáveis.
+# 'extensao' (opcional) recorta uma área menor ANTES das contas, para economizar
+# memória (o Módulo 13 usa só a costa brasileira).
+preparar_camadas <- function(pasta, lat_lim, extensao = NULL) {
+  arquivos <- file.path(pasta, paste0(names(CAMADAS_BIOORACLE), ".tif"))
+  estaticas <- names(CAMADAS_BIOORACLE) %in% CAMADAS_ESTATICAS
+  arquivos[estaticas] <- file.path(PASTA_AMB, paste0(names(CAMADAS_BIOORACLE)[estaticas], ".tif"))
+  faltam <- names(CAMADAS_BIOORACLE)[!file.exists(arquivos)]
+  if (length(faltam) > 0) {
+    stop("Faltam camadas em ", pasta, ": ", paste(faltam, collapse = ", "))
+  }
+  r <- terra::rast(arquivos)
+  names(r) <- names(CAMADAS_BIOORACLE)
+  # A batimetria vem do servidor com uma data (1970-01-01) e as outras camadas
+  # sem data; misturadas, as projeções em paralelo do biomod2 falham. Sem datas.
+  terra::time(r) <- NULL
+  r <- terra::crop(r, if (is.null(extensao)) terra::ext(-180, 180, lat_lim[1], lat_lim[2]) else extensao)
+  if (FATOR_AGREGACAO > 1) {
+    r <- terra::aggregate(r, FATOR_AGREGACAO, fun = "mean", na.rm = TRUE)
+  }
+  # A temperatura do ar vem em kelvin no Bio-ORACLE: passa para °C
+  for (v in intersect(c("ar_max", "ar_min"), names(r))) {
+    if (terra::global(r[[v]], "mean", na.rm = TRUE)[1, 1] > 150) {
+      r[[v]] <- r[[v]] - 273.15
+    }
+  }
+  # A clorofila é muito assimétrica: usa-se o log10
+  r[["chl_mean"]] <- log10(r[["chl_mean"]])
+  names(r)[names(r) == "chl_mean"] <- "chl_log"
+  r
+}
+
+
+# ------------------------------------------------------------------------------
+# Baías, estuários e lagoas sem dado no Bio-ORACLE (ver PREENCHER_BAIAS)
+# ------------------------------------------------------------------------------
+
+# Baixa a linha de costa GSHHG (Wessel & Smith 1996), se ainda não estiver na pasta.
+garantir_gshhg <- function() {
+  if (file.exists(ARQ_GSHHG_TERRA) && file.exists(ARQ_GSHHG_LAGOS)) return(invisible(TRUE))
+  dir.create(dirname(ARQ_GSHHG_TERRA), recursive = TRUE, showWarnings = FALSE)
+  zip <- file.path(tempdir(), "gshhg-shp-2.3.7.zip")
+  message("Baixando a linha de costa GSHHG (~150 MB, só na primeira vez)...")
+  options(timeout = max(1800, getOption("timeout")))
+  utils::download.file("https://www.soest.hawaii.edu/pwessel/gshhg/gshhg-shp-2.3.7.zip",
+                       zip, mode = "wb")
+  nomes <- utils::unzip(zip, list = TRUE)$Name
+  quais <- nomes[grepl("GSHHS_shp/h/GSHHS_h_L[12][.]", nomes)]
+  utils::unzip(zip, files = quais, exdir = dirname(ARQ_GSHHG_TERRA), junkpaths = TRUE)
+  invisible(TRUE)
+}
+
+# Células de água (GSHHG) sem dado no Bio-ORACLE, num pedaço do mapa.
+#   r_ref      : camada do Bio-ORACLE (NA = sem dado)
+#   caixa_lagos: só os lagos e lagoas (GSHHG nível 2) desta área entram
+#                (as lagoas costeiras do Brasil); os lagos do interior dos
+#                outros continentes ficam de fora
+#   lagos_manter: data.frame com lon e lat; se informado, só entram os lagos do
+#                nível 2 que contêm um desses pontos (lagoas ligadas ao mar por
+#                canais); os demais lagos fechados ficam de fora
+mascara_agua <- function(r_ref, arq_terra, arq_lagos = NULL, caixa_lagos = NULL, limiar = 0.3,
+                         lagos_manter = NULL, excluir = NULL) {
+  e <- terra::ext(r_ref)
+  terra_v <- terra::vect(arq_terra, extent = e)
+  agua <- if (nrow(terra_v) > 0) {
+    1 - terra::rasterize(terra_v, r_ref, cover = TRUE, background = 0)
+  } else {
+    terra::init(r_ref, 1)
+  }
+  if (!is.null(arq_lagos) && file.exists(arq_lagos) && !is.null(caixa_lagos)) {
+    e_lagos <- terra::intersect(e, caixa_lagos)
+    if (!is.null(e_lagos)) {
+      lagos <- terra::vect(arq_lagos, extent = e_lagos)
+      if (nrow(lagos) > 0 && !is.null(lagos_manter)) {
+        pts <- terra::vect(lagos_manter, geom = c("lon", "lat"), crs = terra::crs(lagos))
+        dentro <- apply(terra::relate(lagos, pts, "intersects"), 1, any)
+        lagos <- lagos[dentro]
+      }
+      if (nrow(lagos) > 0) {
+        agua <- terra::clamp(agua + terra::rasterize(lagos, r_ref, cover = TRUE, background = 0),
+                             upper = 1)
+      }
+    }
+  }
+  # Água que NÃO deve receber os valores do mar (ARQ_AGUA_EXCLUIDA: a Lagoa dos
+  # Patos ao norte do estuário e o Guaíba): células com pelo menos 'limiar' dela
+  if (!is.null(excluir) && file.exists(excluir)) {
+    ex <- terra::vect(excluir, extent = e)
+    if (nrow(ex) > 0) {
+      parte_excluida <- terra::rasterize(ex, r_ref, cover = TRUE, background = 0)
+      agua <- terra::ifel(parte_excluida >= limiar, 0, agua)
+    }
+  }
+  terra::ifel(is.na(r_ref) & agua >= limiar, 1, NA)
+}
+
+# Estende os valores das células de mar vizinhas para dentro das células de
+# 'agua' (média numa janela de janela × janela células, repetida até preencher
+# tudo). Os valores só ficam nas células de água: a terra continua sem dado.
+estender_mar <- function(r, agua, janela = 7, max_iter = 40) {
+  w <- matrix(1, janela, janela)
+  antes <- Inf
+  for (i in seq_len(max_iter)) {
+    vazias <- terra::mask(agua, r[[1]], inverse = TRUE)
+    n <- terra::global(vazias, "sum", na.rm = TRUE)[1, 1]
+    if (is.na(n) || n == 0 || n >= antes) break
+    antes <- n
+    f <- terra::focal(r, w = w, fun = "mean", na.policy = "only", na.rm = TRUE)
+    r <- terra::cover(r, terra::mask(f, vazias))
+  }
+  r
+}
+
+# Faz o preenchimento por blocos de 'bloco' graus (com 'margem' graus de folga
+# para o preenchimento atravessar a borda dos blocos). Por blocos, a memória
+# fica baixa mesmo no planeta inteiro. Devolve o raster preenchido; o número de
+# células preenchidas fica no atributo "preenchidas".
+# dist_max_km: só a água a até esta distância (em linha reta) do mar com dado é
+# preenchida. Cobre as lagoas costeiras (Patos, Mirim, Guaíba), mas não sobe
+# pelos rios (o GSHHG trata o canal do Amazonas como água ligada ao mar).
+preencher_baias <- function(env, arq_terra, arq_lagos = NULL, caixa_lagos = NULL,
+                            limiar = 0.3, bloco = 10, margem = 1, dist_max_km = 100,
+                            lagos_manter = NULL, excluir = NULL) {
+  e <- terra::ext(env)
+  xs <- seq(floor(e$xmin), ceiling(e$xmax) - 1e-9, by = bloco)
+  ys <- seq(floor(e$ymin), ceiling(e$ymax) - 1e-9, by = bloco)
+  pedacos <- list()
+  total <- 0
+  for (x0 in xs) for (y0 in ys) {
+    nucleo <- terra::intersect(terra::ext(x0, x0 + bloco, y0, y0 + bloco), e)
+    if (is.null(nucleo)) next
+    com_folga <- terra::intersect(terra::ext(x0 - margem, x0 + bloco + margem,
+                                             y0 - margem, y0 + bloco + margem), e)
+    r <- terra::crop(env, com_folga)
+    if (all(is.na(terra::minmax(r[[1]], compute = TRUE)))) next   # só terra
+    if (!any(is.na(terra::values(r[[1]])))) next                  # só mar
+    agua <- mascara_agua(r[[1]], arq_terra, arq_lagos, caixa_lagos, limiar, lagos_manter, excluir)
+    perto_do_mar <- terra::distance(r[[1]]) <= dist_max_km * 1000
+    agua <- terra::ifel(perto_do_mar, agua, NA)
+    n_agua <- terra::global(agua, "sum", na.rm = TRUE)[1, 1]
+    if (is.na(n_agua) || n_agua == 0) next
+    r2 <- estender_mar(r, agua)
+    novos <- terra::crop(terra::mask(r2, r[[1]], inverse = TRUE), nucleo)  # só as células novas
+    n_novos <- terra::global(!is.na(novos[[1]]), "sum")[1, 1]
+    if (n_novos > 0) {
+      arq <- tempfile(fileext = ".tif")
+      terra::writeRaster(novos, arq)
+      pedacos[[length(pedacos) + 1]] <- arq
+      total <- total + n_novos
+    }
+  }
+  if (length(pedacos) > 0) {
+    novos <- terra::merge(terra::sprc(lapply(pedacos, terra::rast)))
+    novos <- terra::extend(novos, env)
+    novos <- terra::crop(novos, env)
+    env <- terra::cover(env, novos)
+  }
+  attr(env, "preenchidas") <- total
+  env
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.3 – Faixa costeira, ajuste e filtro das ocorrências
+# ------------------------------------------------------------------------------
+
+# Células de mar a até 'largura_cel' células de uma célula de terra.
+criar_faixa_costeira <- function(r_ref, largura_cel) {
+  terra_cel <- terra::ifel(is.na(r_ref), 1, 0)
+  janela <- matrix(1, 2 * largura_cel + 1, 2 * largura_cel + 1)
+  perto_da_terra <- terra::focal(terra_cel, w = janela, fun = "max", na.rm = TRUE)
+  faixa <- terra::ifel(perto_da_terra == 1 & terra_cel == 0, 1, NA)
+  names(faixa) <- "faixa"
+  faixa
+}
+
+# Registros que caem em célula sem dado (dentro de estuário, por exemplo) são
+# movidos para a célula de mar mais próxima, se ela estiver a até dist_max_km.
+ajustar_para_faixa <- function(df, faixa, dist_max_km) {
+  df$ajustado <- FALSE
+  valor <- terra::extract(faixa, as.matrix(df[, c("lon", "lat")]))[, 1]
+
+  for (i in which(is.na(valor))) {
+    caixa <- terra::ext(df$lon[i] - 0.3, df$lon[i] + 0.3,
+                        df$lat[i] - 0.3, df$lat[i] + 0.3)
+    vizinhos <- tryCatch(
+      terra::as.points(terra::crop(faixa, caixa), na.rm = TRUE),
+      error = function(e) NULL
+    )
+    if (is.null(vizinhos) || nrow(vizinhos) == 0) next
+
+    ponto <- terra::vect(df[i, c("lon", "lat")], geom = c("lon", "lat"),
+                         crs = "EPSG:4326")
+    d_km <- terra::distance(ponto, vizinhos)[1, ] / 1000
+    j <- which.min(d_km)
+    if (d_km[j] <= dist_max_km) {
+      xy <- terra::crds(vizinhos)[j, ]
+      df$lon[i] <- xy[1]
+      df$lat[i] <- xy[2]
+      df$ajustado[i] <- TRUE
+    }
+  }
+
+  valor <- terra::extract(faixa, as.matrix(df[, c("lon", "lat")]))[, 1]
+  df[!is.na(valor), ]
+}
+
+# Mantém no máximo uma ocorrência a cada 'dist_km' (ordem aleatória).
+filtrar_por_distancia <- function(df, dist_km) {
+  if (nrow(df) < 2) return(df)
+  set.seed(SEMENTE)
+  df <- df[sample(nrow(df)), ]
+  pontos <- terra::vect(df, geom = c("lon", "lat"), crs = "EPSG:4326")
+  d_km <- as.matrix(terra::distance(pontos)) / 1000
+
+  manter <- logical(nrow(df))
+  for (i in seq_len(nrow(df))) {
+    if (!any(manter) || all(d_km[i, manter] > dist_km)) manter[i] <- TRUE
+  }
+  df[manter, ]
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.4 – Seleção de variáveis
+# ------------------------------------------------------------------------------
+
+calcular_vif <- function(df) {
+  if (ncol(df) < 2) return(setNames(rep(1, ncol(df)), names(df)))
+  sapply(names(df), function(v) {
+    outras <- df[setdiff(names(df), v)]
+    r2 <- summary(lm(df[[v]] ~ ., data = outras))$r.squared
+    1 / (1 - r2)
+  })
+}
+
+# Percorre a lista de prioridade e só aceita uma variável se ela não tiver
+# correlação forte com as já escolhidas. Depois confere o VIF.
+selecionar_variaveis <- function(valores, prioridade, limiar_cor, vif_max) {
+  prioridade <- intersect(prioridade, names(valores))
+  correl <- cor(valores[prioridade], use = "pairwise.complete.obs",
+                method = "spearman")
+
+  escolhidas <- character()
+  for (v in prioridade) {
+    if (all(abs(correl[v, escolhidas]) < limiar_cor)) {
+      escolhidas <- c(escolhidas, v)
+    }
+  }
+
+  vif <- calcular_vif(valores[escolhidas])
+  while (length(escolhidas) > 2 && max(vif) > vif_max) {
+    acima <- names(vif)[vif > vif_max]
+    sai <- acima[which.max(match(acima, prioridade))]  # a de menor prioridade
+    escolhidas <- setdiff(escolhidas, sai)
+    vif <- calcular_vif(valores[escolhidas])
+  }
+
+  list(escolhidas = escolhidas, correlacao = correl, vif = vif)
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.5 – Pseudo-ausências e blocos espaciais
+# ------------------------------------------------------------------------------
+
+# Pseudo-ausências sorteadas SÓ dentro da faixa costeira (sem as células com
+# presença). Os mesmos pontos podem ser reaproveitados em vários modelos, o
+# que deixa a comparação entre cenários justa.
+gerar_pseudoausencias <- function(faixa, xy_pres, n, n_rep) {
+  set.seed(SEMENTE)
+  cel_pres <- terra::cellFromXY(faixa, xy_pres)
+  cel_ok <- setdiff(terra::cells(faixa), cel_pres)
+  n <- min(n, length(cel_ok))
+
+  sorteios <- lapply(seq_len(n_rep), function(i) sample(cel_ok, n))
+  todas <- sort(unique(unlist(sorteios)))
+  xy_pa <- terra::xyFromCell(faixa, todas)
+
+  tab_pa <- vapply(sorteios, function(s) todas %in% s, logical(length(todas)))
+  tab_pa <- matrix(tab_pa, ncol = n_rep)
+
+  xy <- rbind(as.matrix(xy_pres), xy_pa)
+  colnames(xy) <- c("lon", "lat")
+
+  tab <- rbind(matrix(TRUE, nrow(xy_pres), n_rep), tab_pa)
+  colnames(tab) <- paste0("PA", seq_len(n_rep))
+
+  list(
+    xy   = as.data.frame(xy),
+    resp = c(rep(1, nrow(xy_pres)), rep(NA, nrow(xy_pa))),
+    tab  = as.data.frame(tab)
+  )
+}
+
+# Blocos em grade (modelo global): cada quadrado de 'tam_graus' vai inteiro
+# para uma das k dobras. Testa várias distribuições e fica com a que deixa o
+# número de presenças mais parecido entre as dobras.
+blocos_em_grade <- function(xy, eh_presenca, tam_graus, k, tentativas = 500) {
+  id_bloco <- paste(floor(xy[, 1] / tam_graus), floor(xy[, 2] / tam_graus))
+  blocos <- unique(id_bloco)
+  pres_bloco <- tapply(eh_presenca, factor(id_bloco, levels = blocos), sum)
+
+  set.seed(SEMENTE)
+  melhor <- NULL
+  melhor_dp <- Inf
+  for (t in seq_len(tentativas)) {
+    dobra <- sample(rep_len(seq_len(k), length(blocos)))
+    n_pres <- tapply(pres_bloco, factor(dobra, levels = seq_len(k)), sum)
+    if (any(n_pres == 0)) next
+    if (sd(n_pres) < melhor_dp) {
+      melhor_dp <- sd(n_pres)
+      melhor <- dobra
+    }
+  }
+  if (is.null(melhor)) {
+    stop("Não consegui montar ", k, " blocos com presenças. ",
+         "Diminua TAM_BLOCO_GRAUS ou K_BLOCOS.")
+  }
+  melhor[match(id_bloco, blocos)]
+}
+
+# Faixas de latitude (modelo só do Brasil): a costa é quase uma linha
+# norte–sul, então cada faixa vira um bloco com o mesmo número de presenças.
+blocos_por_latitude <- function(xy, eh_presenca, k) {
+  cortes <- quantile(xy[eh_presenca, 2], probs = seq(0, 1, length.out = k + 1))
+  cortes[1] <- -Inf
+  cortes[length(cortes)] <- Inf
+  as.integer(cut(xy[, 2], breaks = unique(cortes), labels = FALSE))
+}
+
+# Tabela de calibração/validação no formato do biomod2:
+# TRUE = calibração, FALSE = validação, NA = ponto fora daquele conjunto de PA.
+tabela_validacao <- function(bm_dados, dobra) {
+  pa <- as.data.frame(bm_dados@PA.table)
+  colunas <- list()
+  for (p in seq_len(ncol(pa))) {
+    for (r in sort(unique(dobra))) {
+      colunas[[paste0("_PA", p, "_RUN", r)]] <- ifelse(pa[[p]], dobra != r, NA)
+    }
+  }
+  as.data.frame(colunas, check.names = FALSE)
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.6 – Modelagem no biomod2
+# ------------------------------------------------------------------------------
+
+# Roda: formatação → modelos individuais → ensemble.
+# fn_blocos = função(xy, eh_presenca) que devolve a dobra de cada ponto.
+# Se fn_blocos = NULL, usa validação aleatória 80/20 (só no teste de transferência).
+rodar_biomod <- function(nome, pa, env, fn_blocos = NULL,
+                         modelos = MODELOS, var_import = 3, depende_tambem = list()) {
+  etapa("biomod2: ", nome)
+
+  # Tudo o que, se mudar, obriga a refazer os modelos
+  # PASTA_MODELOS entra porque os modelos salvos guardam o caminho da pasta:
+  # se a pasta mudar (ex.: do Windows para o Linux), eles são refeitos.
+  dependencias <- list(nome, pa, env, fn_blocos, modelos, var_import, METRICAS,
+                       SEMENTE, K_BLOCOS, TAM_BLOCO_GRAUS, K_BLOCOS_BRASIL,
+                       VERSAO_DADOS_AMB, FATOR_AGREGACAO, depende_tambem,
+                       normalizePath(PASTA_MODELOS, winslash = "/", mustWork = FALSE))
+
+  # Ponto de salvamento 1: modelos individuais (a parte mais demorada)
+  parte1 <- salvo(paste0("biomod_", nome, "_1_modelos"), depende_de = dependencias, {
+    modelar_individuais(nome, pa, env, fn_blocos, modelos, var_import)
+  })
+
+  # Ponto de salvamento 2: ensemble
+  parte2 <- salvo(paste0("biomod_", nome, "_2_ensemble"),
+                  depende_de = c(dependencias, TSS_MIN_ENSEMBLE), {
+    montar_ensemble(nome, parte1$modelos, parte1$aval, var_import)
+  })
+
+  res <- list(nome = nome, dados = parte1$dados, modelos = parte1$modelos,
+              aval = parte1$aval, ensemble = parte2$ensemble,
+              limiar_tss = parte2$limiar, dobra = parte1$dobra)
+  res$assinatura <- assinatura(c(dependencias, TSS_MIN_ENSEMBLE))
+  res
+}
+
+modelar_individuais <- function(nome, pa, env, fn_blocos, modelos, var_import) {
+  dados <- BIOMOD_FormatingData(
+    resp.name     = nome,
+    resp.var      = pa$resp,
+    resp.xy       = pa$xy,
+    expl.var      = env,
+    dir.name      = PASTA_MODELOS,
+    PA.strategy   = "user.defined",
+    PA.user.table = pa$tab,
+    filter.raster = FALSE,
+    na.rm         = TRUE
+  )
+
+  argumentos <- list(
+    bm.format         = dados,
+    modeling.id       = nome,
+    models            = modelos,
+    CV.do.full.models = FALSE,
+    OPT.strategy      = "bigboss",
+    metric.eval       = METRICAS,
+    var.import        = var_import,
+    prevalence        = 0.5,  # presenças e pseudo-ausências pesam igual
+    nb.cpu            = NUCLEOS,
+    seed.val          = SEMENTE
+  )
+
+  dobra <- NULL
+  if (is.null(fn_blocos)) {
+    argumentos$CV.strategy <- "random"
+    argumentos$CV.nb.rep   <- 3
+    argumentos$CV.perc     <- 0.8
+  } else {
+    xy <- as.matrix(dados@coord)
+    eh_presenca <- !is.na(dados@data.species) & dados@data.species == 1
+    dobra <- fn_blocos(xy, eh_presenca)
+    argumentos$CV.strategy   <- "user.defined"
+    argumentos$CV.user.table <- tabela_validacao(dados, dobra)
+  }
+
+  modelos_out <- do.call(BIOMOD_Modeling, argumentos)
+  list(dados = dados, modelos = modelos_out, aval = get_evaluations(modelos_out),
+       dobra = dobra)
+}
+
+montar_ensemble <- function(nome, modelos_out, aval, var_import) {
+  # Limiar de seleção: se poucos modelos passam de TSS_MIN_ENSEMBLE,
+  # o limiar desce de 0,1 em 0,1 até 0,4. Se nem assim houver 3 modelos,
+  # o ensemble usa os 3 melhores – e esse resultado deve ser tratado como fraco.
+  tss_val <- aval$validation[aval$metric.eval == "TSS"]
+  limiar <- TSS_MIN_ENSEMBLE
+  while (sum(tss_val >= limiar, na.rm = TRUE) < 3 && limiar > 0.4) {
+    limiar <- round(limiar - 0.1, 1)
+  }
+  if (sum(tss_val >= limiar, na.rm = TRUE) < 3) {
+    terceiro_melhor <- sort(tss_val, decreasing = TRUE)[min(3, sum(!is.na(tss_val)))]
+    limiar <- floor(terceiro_melhor * 1000) / 1000
+    warning(nome, ": menos de 3 modelos com TSS >= 0,4. O ensemble usou os 3 ",
+            "melhores (TSS >= ", limiar, "). Modelo FRACO: não tire conclusões dele.")
+  } else if (limiar < TSS_MIN_ENSEMBLE) {
+    warning(nome, ": poucos modelos com TSS >= ", TSS_MIN_ENSEMBLE,
+            ". O ensemble usou TSS >= ", limiar, ". Comente isso no TCC.")
+  }
+
+  ensemble <- BIOMOD_EnsembleModeling(
+    bm.mod                = modelos_out,
+    models.chosen         = "all",
+    em.by                 = "all",
+    em.algo               = c("EMwmean", "EMmean", "EMcv", "EMca"),
+    metric.select         = "TSS",
+    metric.select.thresh  = limiar,
+    metric.select.dataset = "validation",
+    metric.eval           = METRICAS,
+    var.import            = var_import,
+    EMwmean.decay         = "proportional",
+    nb.cpu                = NUCLEOS,
+    seed.val              = SEMENTE
+  )
+
+  list(ensemble = ensemble, limiar = limiar)
+}
+
+# Limiar de presença/ausência do ensemble (o que maximiza o TSS), em 0–1.
+limiar_ensemble <- function(res) {
+  ev <- get_evaluations(res$ensemble)
+  linha <- ev[grepl("EMwmean", ev$full.name) & ev$metric.eval == "TSS", ]
+  # A adequabilidade é um inteiro de 0 a 1000 dividido por 1000; quando vem de
+  # uma etapa salva (precisão simples), 0,542 vira 0,54199999 e "≥ 0,542" falha.
+  # A folga de 0,000001 mantém a regra do biomod2 (≥ corte) nos empates.
+  linha$cutoff[1] / 1000 - 1e-6
+}
+
+# Projeta os modelos e o ensemble num raster (ou numa tabela de pontos).
+# Cada projeção também é um ponto de salvamento.
+# 'nucleos' não entra na assinatura: mudar o número de núcleos não refaz nada.
+projetar <- function(res, env, nome_proj, xy = NULL, depende_tambem = list(),
+                     nucleos = NUCLEOS) {
+  resultado <- salvo(paste0("projecao_", nome_proj),
+                     depende_de = list(res$assinatura, env, xy, depende_tambem),
+                     projetar_agora(res, env, nome_proj, xy, nucleos))
+  invisible(gc())
+  resultado
+}
+
+projetar_agora <- function(res, env, nome_proj, xy, nucleos = NUCLEOS) {
+  proj <- BIOMOD_Projection(
+    bm.mod              = res$modelos,
+    proj.name           = nome_proj,
+    new.env             = env,
+    new.env.xy          = xy,
+    models.chosen       = "all",
+    build.clamping.mask = FALSE,
+    nb.cpu              = nucleos,
+    seed.val            = SEMENTE
+  )
+  ef <- BIOMOD_EnsembleForecasting(
+    bm.em         = res$ensemble,
+    bm.proj       = proj,
+    models.chosen = "all",
+    nb.cpu        = nucleos,
+    na.rm         = TRUE
+  )
+  pred <- get_predictions(ef)
+
+  if (inherits(pred, "SpatRaster")) {
+    adeq <- pred[[grep("EMwmean", names(pred))[1]]] / 1000
+    incerteza <- pred[[grep("EMcv", names(pred))[1]]]
+    names(adeq) <- "adequabilidade"
+    names(incerteza) <- "cv_entre_modelos"
+    return(list(adeq = adeq, incerteza = incerteza))
+  }
+
+  # Projeção em pontos: tabela longa (um valor por ponto e por ensemble)
+  pred <- pred[grepl("EMwmean", pred$full.name), ]
+  pred <- pred[order(pred$points), ]
+  list(adeq = pred$pred / 1000)
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.7 – Métricas e mapas
+# ------------------------------------------------------------------------------
+
+# Índice de Boyce contínuo (Hirzel et al. 2006): compara a proporção de
+# presenças com a proporção de área em cada faixa de adequabilidade.
+# Vai de -1 a 1; perto de 1 = o modelo põe as presenças nas áreas mais adequadas.
+indice_boyce <- function(adeq_pres, adeq_fundo, n_janelas = 100, largura = 0.1) {
+  adeq_pres <- adeq_pres[!is.na(adeq_pres)]
+  adeq_fundo <- adeq_fundo[!is.na(adeq_fundo)]
+  lim <- range(adeq_fundo)
+  meia <- diff(lim) * largura / 2
+  centros <- seq(lim[1] + meia, lim[2] - meia, length.out = n_janelas)
+
+  razao <- sapply(centros, function(c0) {
+    p <- mean(adeq_pres >= c0 - meia & adeq_pres <= c0 + meia)
+    e <- mean(adeq_fundo >= c0 - meia & adeq_fundo <= c0 + meia)
+    if (e == 0) NA else p / e
+  })
+  ok <- !is.na(razao)
+  if (sum(ok) < 3) return(NA_real_)
+  suppressWarnings(cor(razao[ok], centros[ok], method = "spearman"))
+}
+
+# MESS (Elith et al. 2010): valores negativos = ambiente fora do que o modelo
+# viu na calibração (extrapolação). Nessas células o mapa é menos confiável.
+calcular_mess_valores <- function(valores, referencia) {
+  similaridade <- sapply(names(valores), function(v) {
+    x <- referencia[[v]]
+    x <- x[!is.na(x)]
+    mn <- min(x)
+    mx <- max(x)
+    p <- valores[[v]]
+    f <- ecdf(x)(p) * 100
+    ifelse(f == 0, (p - mn) / (mx - mn) * 100,
+           ifelse(f <= 50, 2 * f,
+                  ifelse(f < 100, 2 * (100 - f), (mx - p) / (mx - mn) * 100)))
+  })
+  apply(matrix(similaridade, ncol = ncol(valores)), 1, min)
+}
+
+calcular_mess <- function(env, referencia) {
+  mess <- env[[1]]
+  terra::values(mess) <- calcular_mess_valores(
+    as.data.frame(terra::values(env)), referencia
+  )
+  names(mess) <- "MESS"
+  mess
+}
+
+PALETA_ADEQ  <- grDevices::colorRampPalette(PALETA_MAPAS)(100)
+PALETA_INCERT <- hcl.colors(100, "Purples", rev = TRUE)
+
+salvar_mapa <- function(r, arquivo, titulo, contorno = NULL, col = PALETA_ADEQ,
+                        ...) {
+  png(file.path(PASTA_FIG, arquivo), width = 2400, height = 2600, res = 300)
+  terra::plot(r, main = titulo, col = col, ...)
+  if (!is.null(contorno)) terra::lines(contorno, col = "grey35", lwd = 0.4)
+  dev.off()
+}
+
+
+# ------------------------------------------------------------------------------
+# 1.8 – Mapas finais para o TCC (ggplot + ggspatial)
+# ------------------------------------------------------------------------------
+# As figuras de resultados/figuras servem para conferência rápida. As de
+# resultados/figuras/mapas_finais têm os elementos que um mapa de trabalho
+# precisa: rosa dos ventos, barra de escala, coordenadas, legenda, datum e
+# fonte. Saem em PNG de 300 dpi com fundo branco, prontos para o Word.
+#
+#   r        : SpatRaster de 1 camada, ou lista nomeada de SpatRasters
+#              (um painel por item, com a mesma legenda)
+#   tipo     : "continuo", "divergente" ou "classes"
+#   cores    : paleta (contínuo) ou vetor de cores nomeado pelas classes
+#   registros: data.frame com lon e lat (ocorrências)
+#   infra    : data.frame com lon, lat, tipo e classe (portos, plataformas)
+#   pocos    : data.frame com lon e lat (pontinhos cinza)
+#   campos   : SpatVector de polígonos (contorno roxo)
+#   extensao : c(lon_min, lon_max, lat_min, lat_max); NULL = área com dados
+
+rotulo_especie <- function(prefixo = "") {
+  partes <- strsplit(ESPECIE, " ")[[1]]
+  abreviado <- paste0(substr(partes[1], 1, 1), ". ", partes[2])
+  parse(text = paste0("'", prefixo, "'*italic('", abreviado, "')"))[[1]]
+}
+
+rotulo_cenario <- function(rotulo) {
+  partes <- strsplit(rotulo, "_")[[1]]
+  ssp <- toupper(partes[1])
+  ssp <- paste0(substr(ssp, 1, 4), "-", substr(ssp, 5, 5), ".", substr(ssp, 6, 6))
+  paste0(ssp, " · ", partes[2], "–", as.numeric(partes[2]) + 10)
+}
+
+CORES_CLASSE_RISCO <- c(Baixo = "#2c7bb6", Médio = "#fdae61", Alto = "#d7191c")
+CORES_CLASSE_INFRA <- c(CORES_CLASSE_RISCO, "Sem valor" = "grey60")
+
+mapa_final <- function(r, arquivo, legenda, titulo = NULL, tipo = "continuo",
+                       cores = PALETA_MAPAS, limites = NULL, registros = NULL,
+                       infra = NULL, pocos = NULL, campos = NULL, extensao = NULL,
+                       colunas = 2, largura = 7.5, altura = 8, nota = NULL,
+                       posicao_seta = "tr",
+                       rotulos_extremos = if (identical(limites, c(0, 1)) &&
+                                              grepl("^Adequabilidade", legenda)) c("Baixa", "Alta")) {
+  tryCatch({
+    camadas <- if (inherits(r, "SpatRaster")) list(" " = r) else r
+    df <- do.call(rbind, lapply(names(camadas), function(nm) {
+      d <- terra::as.data.frame(camadas[[nm]], xy = TRUE, na.rm = TRUE)
+      names(d)[3] <- "valor"
+      d$painel <- nm
+      d
+    }))
+    df$painel <- factor(df$painel, levels = names(camadas))
+    if (tipo == "classes") df$valor <- factor(as.character(df$valor), levels = names(cores))
+    if (is.null(extensao)) {
+      extensao <- c(range(df$x), range(df$y)) + c(-1.5, 1.5, -1.5, 1.5)
+    }
+
+    g <- ggplot2::ggplot()
+    # Países vizinhos em cinza (o continente não fica em branco)
+    if (exists("paises_fundo") && !is.null(paises_fundo)) {
+      g <- g + ggplot2::geom_sf(data = paises_fundo, fill = "grey88", colour = "grey65",
+                                linewidth = 0.1)
+    }
+    g <- g +
+      ggplot2::geom_sf(data = estados, fill = "grey96", colour = NA) +
+      ggplot2::geom_raster(data = df, ggplot2::aes(x = x, y = y, fill = valor)) +
+      ggplot2::geom_sf(data = estados, fill = NA, colour = "grey45", linewidth = 0.15)
+
+    if (tipo == "continuo" && !is.null(rotulos_extremos)) {
+      # Legenda de 0 a 1 com "Baixa" e "Alta" nas pontas (vírgula decimal)
+      quebras_leg <- seq(0, 1, 0.25)
+      rotulos_leg <- format(quebras_leg, nsmall = 2, decimal.mark = ",")
+      rotulos_leg[1] <- paste(rotulos_leg[1], rotulos_extremos[1])
+      rotulos_leg[length(rotulos_leg)] <- paste(rotulos_leg[length(rotulos_leg)], rotulos_extremos[2])
+      g <- g + ggplot2::scale_fill_gradientn(colours = cores, limits = limites,
+                                             breaks = quebras_leg, labels = rotulos_leg,
+                                             na.value = NA, oob = scales::squish)
+    } else if (tipo == "continuo") {
+      g <- g + ggplot2::scale_fill_gradientn(colours = cores, limits = limites,
+                                             na.value = NA, oob = scales::squish)
+    } else if (tipo == "divergente") {
+      lim <- max(abs(df$valor), na.rm = TRUE)
+      g <- g + ggplot2::scale_fill_gradientn(colours = hcl.colors(11, "Blue-Red 3"),
+                                             limits = c(-lim, lim))
+    } else {
+      g <- g + ggplot2::scale_fill_manual(values = cores, drop = FALSE, na.translate = FALSE)
+    }
+
+    if (!is.null(campos)) {
+      g <- g + ggplot2::geom_sf(data = sf::st_as_sf(campos), fill = NA,
+                                colour = "purple", linewidth = 0.25)
+    }
+
+    # Pontos: o formato diz o que é; a cor (infraestruturas) diz a classe
+    formas <- c("Portos e terminais" = 16, "Plataformas" = 17, "Poços" = 20, "Registros" = 8)
+    usadas <- character()
+    if (!is.null(pocos) && nrow(pocos) > 0) {
+      g <- g + ggplot2::geom_point(data = pocos, ggplot2::aes(x = lon, y = lat, shape = "Poços"),
+                                   size = 0.3, colour = "grey30")
+      usadas <- c(usadas, "Poços")
+    }
+    if (!is.null(infra) && nrow(infra) > 0) {
+      infra$classe[is.na(infra$classe)] <- "Sem valor"
+      infra$classe <- factor(infra$classe, levels = names(CORES_CLASSE_INFRA))
+      g <- g + ggplot2::geom_point(data = infra,
+                                   ggplot2::aes(x = lon, y = lat, shape = tipo, colour = classe),
+                                   size = 1.7) +
+        ggplot2::scale_colour_manual(name = "Classe da\ninfraestrutura",
+                                     values = CORES_CLASSE_INFRA, drop = TRUE)
+      usadas <- c(usadas, unique(infra$tipo))
+    }
+    if (!is.null(registros) && nrow(registros) > 0) {
+      g <- g + ggplot2::geom_point(data = registros, ggplot2::aes(x = lon, y = lat, shape = "Registros"),
+                                   size = 1.2, colour = "black")
+      usadas <- c(usadas, "Registros")
+    }
+    if (length(usadas) > 0) {
+      quebras <- intersect(names(formas), usadas)
+      rotulos <- as.list(quebras)
+      rotulos[quebras == "Registros"] <- list(rotulo_especie("Registros de "))
+      g <- g + ggplot2::scale_shape_manual(name = NULL, values = formas, breaks = quebras,
+                                           labels = do.call(expression, rotulos))
+    }
+
+    # Com vários painéis, rosa dos ventos e escala só no primeiro
+    so_primeiro <- if (length(camadas) > 1) {
+      data.frame(painel = factor(names(camadas)[1], levels = names(camadas)))
+    } else NULL
+    g <- g +
+      ggplot2::coord_sf(xlim = extensao[1:2], ylim = extensao[3:4], expand = FALSE) +
+      ggspatial::annotation_north_arrow(data = so_primeiro, location = posicao_seta,
+                                        which_north = "true",
+                                        style = ggspatial::north_arrow_fancy_orienteering,
+                                        height = grid::unit(0.9, "cm"), width = grid::unit(0.9, "cm")) +
+      ggspatial::annotation_scale(data = so_primeiro, location = "bl", width_hint = 0.3,
+                                  text_cex = 0.6) +
+      ggplot2::labs(x = "Longitude", y = "Latitude", fill = legenda, title = titulo,
+                    caption = paste(c(nota, "Datum: WGS 84 (EPSG:4326). Limites estaduais: IBGE (2020)."),
+                                    collapse = "\n")) +
+      ggplot2::theme_minimal(base_size = 9) +
+      ggplot2::theme(panel.grid.major = ggplot2::element_line(colour = "grey88", linewidth = 0.2),
+                     panel.border = ggplot2::element_rect(fill = NA, colour = "grey40", linewidth = 0.3),
+                     legend.title = ggplot2::element_text(face = "bold"),
+                     plot.title = ggplot2::element_text(face = "bold"),
+                     plot.caption = ggplot2::element_text(colour = "grey40", size = 6.5, hjust = 0),
+                     strip.text = ggplot2::element_text(face = "bold"))
+    if (length(camadas) > 1) g <- g + ggplot2::facet_wrap(~painel, ncol = colunas)
+
+    suppressWarnings(ggplot2::ggsave(file.path(PASTA_MAPAS, arquivo), g, width = largura,
+                                     height = altura, dpi = 300, bg = "white"))
+  }, error = function(e) warning("Mapa final ", arquivo, " não foi gerado: ", conditionMessage(e)))
+}
+
+# Resumo das métricas de validação por algoritmo (média, desvio, mín., máx.)
+resumir_avaliacao <- function(aval) {
+  partes <- split(aval$validation, list(aval$algo, aval$metric.eval), drop = TRUE)
+  do.call(rbind, lapply(names(partes), function(nm) {
+    v <- partes[[nm]]
+    data.frame(
+      algoritmo = sub("\\..*", "", nm),
+      metrica   = sub(".*\\.", "", nm),
+      media     = round(mean(v, na.rm = TRUE), 3),
+      desvio    = round(sd(v, na.rm = TRUE), 3),
+      minimo    = round(min(v, na.rm = TRUE), 3),
+      maximo    = round(max(v, na.rm = TRUE), 3),
+      n         = sum(!is.na(v))
+    )
+  }))
+}
+
+# Salva tabelas e figuras de avaliação de um resultado do rodar_biomod().
+salvar_avaliacao <- function(res, prefixo) {
+  write.csv(res$aval, file.path(PASTA_TAB, paste0(prefixo, "_avaliacoes_completas.csv")),
+            row.names = FALSE)
+
+  resumo <- resumir_avaliacao(res$aval)
+  write.csv(resumo, file.path(PASTA_TAB, paste0(prefixo, "_resumo_por_algoritmo.csv")),
+            row.names = FALSE)
+
+  cal_val <- aggregate(cbind(calibration, validation) ~ algo + metric.eval,
+                       data = res$aval, FUN = mean)
+  cal_val$diferenca <- cal_val$calibration - cal_val$validation
+  write.csv(cal_val, file.path(PASTA_TAB, paste0(prefixo, "_calibracao_x_validacao.csv")),
+            row.names = FALSE)
+
+  if (!is.null(res$dobra)) {
+    por_bloco <- aggregate(validation ~ run + algo + metric.eval,
+                           data = res$aval, FUN = mean)
+    write.csv(por_bloco, file.path(PASTA_TAB, paste0(prefixo, "_validacao_por_bloco.csv")),
+              row.names = FALSE)
+  }
+
+  write.csv(get_evaluations(res$ensemble),
+            file.path(PASTA_TAB, paste0(prefixo, "_avaliacao_ensemble.csv")),
+            row.names = FALSE)
+
+  tss <- res$aval[res$aval$metric.eval == "TSS", ]
+  png(file.path(PASTA_FIG, paste0(prefixo, "_tss_validacao.png")),
+      width = 2000, height = 1600, res = 300)
+  boxplot(validation ~ algo, data = tss, ylim = c(0, 1), col = "grey85",
+          xlab = "", ylab = "TSS na validação espacial",
+          main = paste("Desempenho por algoritmo –", prefixo))
+  abline(h = res$limiar_tss, lty = 2, col = "red")
+  dev.off()
+
+  resumo
+}
+
+# Importância das variáveis e curvas de resposta do ensemble EMwmean.
+salvar_importancia_e_curvas <- function(res, prefixo) {
+  imp <- get_variables_importance(res$ensemble)
+  imp <- imp[grepl("EMwmean", imp$full.name), ]
+  imp_media <- sort(tapply(imp$var.imp, imp$expl.var, mean), decreasing = TRUE)
+  write.csv(data.frame(variavel = names(imp_media), importancia = round(imp_media, 3)),
+            file.path(PASTA_TAB, paste0(prefixo, "_importancia_variaveis.csv")),
+            row.names = FALSE)
+
+  png(file.path(PASTA_FIG, paste0(prefixo, "_importancia_variaveis.png")),
+      width = 2000, height = 1600, res = 300)
+  par(mar = c(4, 7, 3, 1))
+  barplot(rev(imp_media), horiz = TRUE, las = 1, col = "steelblue",
+          xlab = "Importância (1 − correlação após permutação)",
+          main = "Importância das variáveis – ensemble")
+  dev.off()
+
+  nome_em <- grep("EMwmean", get_built_models(res$ensemble), value = TRUE)[1]
+  curvas <- tryCatch(
+    bm_PlotResponseCurves(bm.out = res$ensemble, models.chosen = nome_em,
+                          fixed.var = "median", do.plot = FALSE),
+    error = function(e) NULL
+  )
+  if (!is.null(curvas) && requireNamespace("ggplot2", quietly = TRUE)) {
+    ggplot2::ggsave(file.path(PASTA_FIG, paste0(prefixo, "_curvas_resposta.png")),
+                    curvas$plot, width = 8, height = 6, dpi = 300)
+  }
+
+  imp_media
+}
+
+
+# ==============================================================================
+# MÓDULO 2 – OCORRÊNCIAS
+# ==============================================================================
+
+etapa("MÓDULO 2 – OCORRÊNCIAS")
+
+ocorr <- list()
+
+ocorr$brasil <- ler_coordenadas(ARQ_OCORR_BRASIL, "brasil")
+ocorr$brasil$pais <- "BR"
+
+# Opcional: se a linha de ARQ_OCORR_LITERAT foi apagada no Módulo 0, ou o
+# arquivo não existe, o script segue só com o Brasil, o GBIF e o OBIS.
+if (exists("ARQ_OCORR_LITERAT") && file.exists(ARQ_OCORR_LITERAT)) {
+  ocorr$literatura <- ler_coordenadas(ARQ_OCORR_LITERAT, "literatura")
+}
+
+# Só baixa se ainda não tiver baixado. Para baixar de novo, apague gbif_bruto.csv.
+if (BAIXAR_GBIF && !file.exists(ARQ_GBIF_BRUTO)) {
+  baixar_gbif(ESPECIE, ARQ_GBIF_BRUTO)
+}
+
+if (file.exists(ARQ_GBIF_BRUTO)) {
+  g <- read.csv(ARQ_GBIF_BRUTO, stringsAsFactors = FALSE)
+  g <- g[!g$basisOfRecord %in% c("FOSSIL_SPECIMEN", "LIVING_SPECIMEN") &
+           (is.na(g$coordinateUncertaintyInMeters) |
+              g$coordinateUncertaintyInMeters <= INCERTEZA_MAX_M) &
+           (is.na(g$year) | g$year >= ANO_MIN), ]
+  ocorr$gbif <- data.frame(
+    id = paste0("gbif_", g$key), fonte = "gbif",
+    lon = g$decimalLongitude, lat = g$decimalLatitude,
+    pais = g$countryCode, ano = g$year, substrato = NA_character_,
+    stringsAsFactors = FALSE
+  )
+}
+
+# OBIS: mesmo esquema do GBIF (baixa uma vez; para baixar de novo, apague obis_bruto.csv).
+if (BAIXAR_OBIS && !file.exists(ARQ_OBIS_BRUTO)) {
+  baixar_obis(ESPECIE, ARQ_OBIS_BRUTO)
+}
+
+if (file.exists(ARQ_OBIS_BRUTO)) {
+  o <- read.csv(ARQ_OBIS_BRUTO, stringsAsFactors = FALSE)
+  o$coordinateUncertaintyInMeters <- suppressWarnings(as.numeric(o$coordinateUncertaintyInMeters))
+  o$date_year <- suppressWarnings(as.integer(o$date_year))
+  o <- o[!toupper(o$absence) %in% "TRUE" &
+           !grepl("fossil|living", o$basisOfRecord, ignore.case = TRUE) &
+           (is.na(o$coordinateUncertaintyInMeters) |
+              o$coordinateUncertaintyInMeters <= INCERTEZA_MAX_M) &
+           (is.na(o$date_year) | o$date_year >= ANO_MIN), ]
+  ocorr$obis <- data.frame(
+    id = paste0("obis_", o$id), fonte = "obis",
+    lon = o$decimalLongitude, lat = o$decimalLatitude,
+    # O OBIS mistura códigos de 2 e 3 letras (BR, BRA)
+    pais = ifelse(o$countryCode %in% "", NA,
+                  ifelse(toupper(o$countryCode) %in% "BRA", "BR", o$countryCode)),
+    ano = o$date_year, substrato = NA_character_,
+    stringsAsFactors = FALSE
+  )
+}
+
+oc <- do.call(rbind, unname(ocorr))
+oc$tipo_substrato <- classificar_substrato(oc$substrato)
+n_inicial <- nrow(oc)
+
+# Limpeza básica (Chapman 2005): coordenadas vazias, impossíveis,
+# (0, 0), longitude = latitude e registros excluídos na revisão.
+oc <- oc[!is.na(oc$lon) & !is.na(oc$lat) & abs(oc$lon) <= 180 & abs(oc$lat) <= 90, ]
+oc <- oc[!(oc$lon == 0 & oc$lat == 0) & oc$lon != oc$lat, ]
+
+if (exists("ARQ_EXCLUIR") && file.exists(ARQ_EXCLUIR)) {
+  excluir <- ler_tabela(ARQ_EXCLUIR)$id
+  oc <- oc[!oc$id %in% excluir, ]
+  message(length(excluir), " registros excluídos pela revisão.")
+}
+
+caixa_brasil <- oc$lon > -55 & oc$lon < -25 & oc$lat > -35 & oc$lat < 7
+oc$regiao <- ifelse(oc$pais %in% "BR" | (is.na(oc$pais) & caixa_brasil),
+                    "Brasil", "Exterior")
+
+# ATENÇÃO – TAXONOMIA
+# "Saccostrea cucullata" é um complexo de espécies crípticas (Lam & Morton 2006).
+# Abra a tabela abaixo e o mapa do Módulo 4, confira com a orientadora quais
+# registros pertencem à mesma linhagem encontrada no Brasil e coloque os ids
+# que devem sair em dados/ocorrencias/registros_excluir.csv (coluna "id").
+write.csv(oc, file.path(PASTA_TAB, "01_ocorrencias_para_revisar.csv"), row.names = FALSE)
+
+cat("Registros lidos:", n_inicial, "| depois da limpeza:", nrow(oc), "\n")
+print(table(oc$fonte, oc$regiao))
+
+
+# ==============================================================================
+# MÓDULO 3 – CAMADAS AMBIENTAIS (Bio-ORACLE v3)
+# ==============================================================================
+
+etapa("MÓDULO 3 – CAMADAS AMBIENTAIS")
+
+# Latitudes usadas: faixa das ocorrências ± 10°
+lat_lim <- c(max(-89.975, floor(min(oc$lat)) - 10),
+             min(89.975, ceiling(max(oc$lat)) + 10))
+
+if (BAIXAR_BIOORACLE) {
+  baixar_biooracle(lat_lim, PASTA_AMB)
+}
+
+arquivos_amb <- file.path(PASTA_AMB, paste0(names(CAMADAS_BIOORACLE), ".tif"))
+faltam <- names(CAMADAS_BIOORACLE)[!file.exists(arquivos_amb)]
+if (length(faltam) > 0) {
+  stop("Faltam camadas em ", PASTA_AMB, ": ", paste(faltam, collapse = ", "))
+}
+
+# Data dos arquivos ambientais: se você baixar camadas novas, as etapas
+# salvas que dependem delas são refeitas.
+VERSAO_DADOS_AMB <- as.character(file.mtime(arquivos_amb))
+
+env <- preparar_camadas(PASTA_AMB, lat_lim)
+
+# Baías, estuários e lagoas sem dado no Bio-ORACLE: estende o mar para dentro
+# delas (ver PREENCHER_BAIAS). Entra na "versão dos dados": as etapas salvas
+# que dependem do ambiente (faixa, ajuste, modelos, projeções) são refeitas.
+if (PREENCHER_BAIAS) {
+  garantir_gshhg()
+  # Lagos fechados de fora (só as lagoas ligadas ao mar) – ver INCLUIR_LAGOS_FECHADOS
+  LAGOS_MANTER <- if (INCLUIR_LAGOS_FECHADOS) NULL else LAGOAS_LIGADAS_AO_MAR
+  VERSAO_DADOS_AMB <- c(VERSAO_DADOS_AMB, paste("baias", LIMIAR_AGUA, DIST_MAX_BAIAS_KM,
+                                                as.character(file.mtime(ARQ_GSHHG_TERRA)),
+                                                if (INCLUIR_LAGOS_FECHADOS) "com_lagos_fechados"
+                                                else paste(LAGOAS_LIGADAS_AO_MAR$nome, collapse = "+"),
+                                                if (!is.null(ARQ_AGUA_EXCLUIDA))
+                                                  paste("sem", basename(ARQ_AGUA_EXCLUIDA),
+                                                        as.character(file.mtime(ARQ_AGUA_EXCLUIDA)))))
+  if (!is.null(ARQ_AGUA_EXCLUIDA) && !file.exists(ARQ_AGUA_EXCLUIDA))
+    stop("Falta o arquivo ", ARQ_AGUA_EXCLUIDA, " (polígono da Lagoa dos Patos sem o estuário).")
+  env <- salvo("03_camadas_com_baias",
+               depende_de = list(VERSAO_DADOS_AMB, lat_lim, FATOR_AGREGACAO, EXTENSAO_OCEANO), {
+    preenchido <- preencher_baias(env, ARQ_GSHHG_TERRA, ARQ_GSHHG_LAGOS,
+                                  caixa_lagos = terra::ext(EXTENSAO_OCEANO), limiar = LIMIAR_AGUA,
+                                 dist_max_km = DIST_MAX_BAIAS_KM, lagos_manter = LAGOS_MANTER,
+                                 excluir = ARQ_AGUA_EXCLUIDA)
+    cat("Baías, estuários e lagoas preenchidos:", attr(preenchido, "preenchidas"), "células\n")
+    preenchido
+  })
+}
+print(env)
+
+
+# ==============================================================================
+# MÓDULO 4 – FAIXA COSTEIRA E AJUSTE DAS OCORRÊNCIAS
+# ==============================================================================
+
+etapa("MÓDULO 4 – FAIXA COSTEIRA")
+
+# Por que a faixa costeira?
+# A ostra vive na zona entremarés. Se as pseudo-ausências forem sorteadas no
+# oceano aberto, o modelo só aprende "costa × alto-mar", e o AUC e o TSS saem
+# altos sem dizer nada sobre o nicho. Calibrando só na faixa costeira, o modelo
+# precisa separar costas adequadas de costas inadequadas.
+
+faixa_salva <- salvo("04_faixa_costeira",
+                     depende_de = list(VERSAO_DADOS_AMB, lat_lim, FATOR_AGREGACAO,
+                                       FAIXA_COSTEIRA_CEL), {
+  faixa <- criar_faixa_costeira(env[[1]], FAIXA_COSTEIRA_CEL)
+  env_faixa <- terra::mask(env, faixa)
+
+  # Mantém só as células com todas as variáveis disponíveis
+  faixa <- terra::ifel(terra::noNA(env_faixa), 1, NA)
+  list(faixa = faixa, env_faixa = terra::mask(env_faixa, faixa))
+})
+faixa <- faixa_salva$faixa
+env_faixa <- faixa_salva$env_faixa
+
+oc_ajustadas <- salvo("04_ocorrencias_ajustadas",
+                      depende_de = list(oc, faixa, VERSAO_DADOS_AMB, DIST_AJUSTE_KM),
+                      ajustar_para_faixa(oc, faixa, DIST_AJUSTE_KM))
+
+cat("Registros fora da faixa e longe demais (descartados):",
+    nrow(oc) - nrow(oc_ajustadas), "\n")
+cat("Registros movidos para a célula de mar mais próxima:",
+    sum(oc_ajustadas$ajustado), "\n")
+
+
+# ==============================================================================
+# MÓDULO 5 – FILTRO ESPACIAL
+# ==============================================================================
+
+etapa("MÓDULO 5 – FILTRO ESPACIAL")
+
+# 1º) uma ocorrência por célula
+oc_ajustadas$celula <- terra::cellFromXY(faixa, as.matrix(oc_ajustadas[, c("lon", "lat")]))
+oc_unicas <- oc_ajustadas[!duplicated(oc_ajustadas$celula), ]
+
+# 2º) uma ocorrência a cada DIST_FILTRO_KM
+oc_final <- filtrar_por_distancia(oc_unicas, DIST_FILTRO_KM)
+
+# Coordenadas no centro da célula (é o valor que o modelo enxerga)
+oc_final[, c("lon", "lat")] <- terra::xyFromCell(faixa, oc_final$celula)
+
+write.csv(oc_final, file.path(PASTA_TAB, "02_ocorrencias_finais.csv"), row.names = FALSE)
+
+resumo_oc <- data.frame(
+  etapa = c("lidos", "limpeza", "na faixa costeira", "uma por célula",
+            paste("filtro de", DIST_FILTRO_KM, "km")),
+  n = c(n_inicial, nrow(oc), nrow(oc_ajustadas), nrow(oc_unicas), nrow(oc_final))
+)
+write.csv(resumo_oc, file.path(PASTA_TAB, "03_resumo_ocorrencias.csv"), row.names = FALSE)
+print(resumo_oc)
+print(table(oc_final$regiao))
+
+# Mapa das ocorrências para a revisão
+png(file.path(PASTA_FIG, "01_ocorrencias.png"), width = 3600, height = 2000, res = 300)
+terra::plot(faixa, col = "grey80", legend = FALSE,
+            main = "Ocorrências usadas (cinza = faixa costeira de calibração)")
+cores_regiao <- c(Brasil = "red3", Exterior = "dodgerblue3")
+points(oc_final$lon, oc_final$lat, pch = 21, cex = 0.7,
+       bg = cores_regiao[oc_final$regiao], col = "black", lwd = 0.3)
+terra::add_legend("bottomleft", legend = names(cores_regiao), pt.bg = cores_regiao,
+                  pch = 21, bty = "n")
+dev.off()
+
+
+# ==============================================================================
+# MÓDULO 6 – SELEÇÃO DE VARIÁVEIS
+# ==============================================================================
+
+etapa("MÓDULO 6 – SELEÇÃO DE VARIÁVEIS")
+
+set.seed(SEMENTE)
+fundo <- terra::spatSample(env_faixa, 10000, method = "random", na.rm = TRUE)
+
+selecao <- selecionar_variaveis(fundo, PRIORIDADE_VARIAVEIS,
+                                LIMIAR_CORRELACAO, VIF_MAX)
+VARIAVEIS <- selecao$escolhidas
+
+cat("Variáveis escolhidas:", paste(VARIAVEIS, collapse = ", "), "\n")
+print(round(selecao$vif, 2))
+
+write.csv(round(selecao$correlacao, 3), file.path(PASTA_TAB, "04_correlacao_spearman.csv"))
+write.csv(data.frame(variavel = names(selecao$vif), vif = round(selecao$vif, 2)),
+          file.path(PASTA_TAB, "05_vif_variaveis_escolhidas.csv"), row.names = FALSE)
+
+# Mapa de calor da correlação
+png(file.path(PASTA_FIG, "02_correlacao.png"), width = 2200, height = 2000, res = 300)
+cm <- selecao$correlacao
+par(mar = c(6, 6, 3, 2))
+image(seq_len(ncol(cm)), seq_len(nrow(cm)), t(cm[nrow(cm):1, ]), zlim = c(-1, 1),
+      col = hcl.colors(41, "Blue-Red 3"), axes = FALSE, xlab = "", ylab = "",
+      main = "Correlação de Spearman na faixa costeira")
+axis(1, seq_len(ncol(cm)), colnames(cm), las = 2)
+axis(2, seq_len(nrow(cm)), rev(rownames(cm)), las = 1)
+text(rep(seq_len(ncol(cm)), each = nrow(cm)), rep(nrow(cm):1, ncol(cm)),
+     sprintf("%.2f", cm), cex = 0.6)
+dev.off()
+
+# Onde estão as presenças em relação ao ambiente disponível (nicho)
+valores_pres <- terra::extract(env_faixa, as.matrix(oc_final[, c("lon", "lat")]))
+png(file.path(PASTA_FIG, "03_presencas_x_ambiente.png"),
+    width = 3000, height = 1800, res = 300)
+par(mfrow = c(2, ceiling(length(VARIAVEIS) / 2)), mar = c(3, 4, 2, 1))
+for (v in VARIAVEIS) {
+  boxplot(list(Costa = fundo[[v]], Presenças = valores_pres[[v]]),
+          main = v, col = c("grey85", "orange"))
+}
+dev.off()
+
+env_sel <- env_faixa[[VARIAVEIS]]
+
+
+# ==============================================================================
+# MÓDULO 7 – MODELO AMBIENTAL GLOBAL
+# ==============================================================================
+
+etapa("MÓDULO 7 – MODELO AMBIENTAL GLOBAL")
+
+xy_pres <- oc_final[, c("lon", "lat")]
+n_pa <- max(N_PA_MIN, PA_POR_PRESENCA * nrow(xy_pres))
+
+pa_global <- gerar_pseudoausencias(faixa, xy_pres, n_pa, N_PA_REP)
+
+global <- rodar_biomod(
+  nome      = "SaccGlobal",
+  pa        = pa_global,
+  env       = env_sel,
+  fn_blocos = function(xy, pres) blocos_em_grade(xy, pres, TAM_BLOCO_GRAUS, K_BLOCOS)
+)
+
+cat("\nPresenças por bloco espacial:\n")
+print(table(global$dobra[!is.na(global$dados@data.species)]))
+
+resumo_global <- salvar_avaliacao(global, "07_global")
+print(resumo_global)
+
+importancia_global <- salvar_importancia_e_curvas(global, "07_global")
+print(round(importancia_global, 3))
+
+
+# ==============================================================================
+# MÓDULO 8 – PROJEÇÃO NA COSTA BRASILEIRA
+# ==============================================================================
+
+etapa("MÓDULO 8 – PROJEÇÃO NA COSTA BRASILEIRA")
+
+# Estados (IBGE 2020) – contorno dos mapas e análise por estado.
+# O geobr baixa do servidor do IPEA, que às vezes fica fora do ar. Por isso os
+# estados são baixados uma vez só e guardados em dados/limites/; nas rodadas
+# seguintes o script lê o arquivo, sem internet.
+ARQ_ESTADOS <- file.path(PASTA_DADOS, "limites", "estados_ibge_2020.gpkg")
+if (file.exists(ARQ_ESTADOS)) {
+  estados <- sf::st_read(ARQ_ESTADOS, quiet = TRUE)
+} else {
+  estados <- NULL
+  for (tentativa in 1:5) {
+    # Da segunda tentativa em diante, sem cache (a cópia local pode corromper)
+    estados <- tryCatch(geobr::read_state(year = 2020, showProgress = FALSE,
+                                          cache = tentativa == 1),
+                        error = function(e) NULL)
+    if (!is.null(estados)) break
+    message("O servidor do geobr não respondeu (tentativa ", tentativa,
+            " de 5). Nova tentativa em 30 s...")
+    Sys.sleep(30)
+  }
+  if (is.null(estados)) {
+    stop("Não consegui baixar os estados do IBGE (geobr): o servidor do IPEA não ",
+         "respondeu. Tente de novo mais tarde ou coloque o arquivo ", ARQ_ESTADOS)
+  }
+  dir.create(dirname(ARQ_ESTADOS), showWarnings = FALSE, recursive = TRUE)
+  sf::st_write(estados, ARQ_ESTADOS, quiet = TRUE)
+}
+estados <- sf::st_transform(estados, 4326)
+estados_proj <- sf::st_transform(estados, 5880)  # SIRGAS 2000 / Brazil Polyconic
+contorno <- terra::vect(estados)
+
+# Estado e região mais próximos de cada ponto (usado nos Módulos 12 e 13)
+estado_mais_proximo <- function(lon, lat) {
+  pts <- sf::st_as_sf(data.frame(lon = lon, lat = lat), coords = c("lon", "lat"),
+                      crs = 4326)
+  pts <- sf::st_transform(pts, 5880)
+  i <- sf::st_nearest_feature(pts, estados_proj)
+  data.frame(uf = estados_proj$abbrev_state[i], regiao = estados_proj$name_region[i])
+}
+
+# Países (Natural Earth 1:50 mi) para o fundo cinza dos mapas finais
+# Recortados à América do Sul e arredores: alguns países atravessam a linha de
+# data (Fiji, Rússia) e desenhavam uma linha horizontal falsa no mapa.
+paises_fundo <- tryCatch({
+  s2_antes <- sf::sf_use_s2(FALSE)
+  p <- suppressWarnings(suppressMessages(sf::st_crop(
+    sf::st_make_valid(rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")),
+    c(xmin = -100, ymin = -60, xmax = -10, ymax = 25))))
+  sf::sf_use_s2(s2_antes)
+  p
+}, error = function(e) NULL)
+
+brasil_buffer <- sf::st_buffer(sf::st_union(sf::st_simplify(estados_proj, dTolerance = 1000)),
+                               BUFFER_BRASIL_KM * 1000)
+brasil_buffer <- terra::vect(sf::st_transform(brasil_buffer, 4326))
+
+faixa_br <- terra::mask(terra::crop(faixa, terra::ext(brasil_buffer)), brasil_buffer)
+env_br <- terra::mask(terra::crop(env_sel, faixa_br), faixa_br)
+
+proj_br <- projetar(global, env_br, "Brasil")
+adeq <- proj_br$adeq
+limiar_global <- limiar_ensemble(global)
+binario <- adeq >= limiar_global
+names(binario) <- "adequado"
+
+cat("Limiar de presença do ensemble (máx. TSS):", round(limiar_global, 3), "\n")
+
+# MESS: compara o ambiente do Brasil com o ambiente usado na calibração
+mess <- salvo("08_mess_brasil", depende_de = list(global$assinatura, env_br),
+              calcular_mess(env_br, global$dados@data.env.var))
+extrapolacao <- terra::ifel(mess < 0, 1, NA)
+cat("Faixa costeira brasileira em extrapolação (MESS < 0):",
+    round(100 * terra::global(mess < 0, "mean", na.rm = TRUE)[1, 1], 1), "%\n")
+
+terra::writeRaster(adeq, file.path(PASTA_RASTER, "adequabilidade_brasil.tif"), overwrite = TRUE)
+terra::writeRaster(binario, file.path(PASTA_RASTER, "adequado_binario_brasil.tif"), overwrite = TRUE)
+terra::writeRaster(proj_br$incerteza, file.path(PASTA_RASTER, "incerteza_cv_brasil.tif"), overwrite = TRUE)
+terra::writeRaster(mess, file.path(PASTA_RASTER, "mess_brasil.tif"), overwrite = TRUE)
+
+# Projeção em todo o mar da caixa EXTENSAO_OCEANO (só para os mapas)
+if (MAPA_OCEANO) {
+  caixa_oceano <- terra::ext(EXTENSAO_OCEANO)
+  env_oceano <- terra::crop(env[[VARIAVEIS]], caixa_oceano)
+  proj_oceano <- projetar(global, env_oceano, "Oceano", nucleos = NUCLEOS_OCEANO)
+  adeq_oceano <- proj_oceano$adeq
+  mess_oceano <- salvo("08_mess_oceano", depende_de = list(global$assinatura, env_oceano),
+                       calcular_mess(env_oceano, global$dados@data.env.var))
+  terra::writeRaster(adeq_oceano, file.path(PASTA_RASTER, "adequabilidade_oceano.tif"), overwrite = TRUE)
+  terra::writeRaster(proj_oceano$incerteza, file.path(PASTA_RASTER, "incerteza_cv_oceano.tif"),
+                     overwrite = TRUE)
+  terra::writeRaster(mess_oceano, file.path(PASTA_RASTER, "mess_oceano.tif"), overwrite = TRUE)
+  cat("Oceano: ", round(100 * terra::global(mess_oceano < 0, "mean", na.rm = TRUE)[1, 1], 1),
+      "% do mar da caixa fora das condições da calibração (MESS < 0)" , "\n")
+}
+# Rasters usados nos mapas finais 01, 03 e 04
+adeq_mapa      <- if (MAPA_OCEANO) adeq_oceano else adeq
+incerteza_mapa <- if (MAPA_OCEANO) proj_oceano$incerteza else proj_br$incerteza
+mess_mapa      <- if (MAPA_OCEANO) mess_oceano else mess
+
+salvar_mapa(adeq, "08_adequabilidade_brasil.png",
+            "Adequabilidade ambiental – ensemble (EMwmean)", contorno, range = c(0, 1))
+salvar_mapa(binario, "08_adequado_binario_brasil.png",
+            paste0("Adequado (≥ ", round(limiar_global, 2), ", máx. TSS)"),
+            contorno, col = c("grey80", "firebrick"))
+salvar_mapa(proj_br$incerteza, "08_incerteza_brasil.png",
+            "Incerteza – coeficiente de variação entre modelos", contorno,
+            col = PALETA_INCERT)
+salvar_mapa(mess, "08_mess_brasil.png",
+            "MESS (negativo = fora das condições da calibração)", contorno,
+            col = hcl.colors(100, "RdBu"))
+
+# Mapas finais (com rosa dos ventos, escala e legenda)
+registros_br_mapa <- oc_ajustadas[oc_ajustadas$regiao == "Brasil", c("lon", "lat")]
+binario_classes <- terra::ifel(binario, 2, 1)
+levels(binario_classes) <- data.frame(id = 1:2, classe = c("Não adequado", "Adequado"))
+
+mapa_final(adeq_mapa, "01_adequabilidade_presente.png", "Adequabilidade\nambiental",
+           limites = c(0, 1), registros = registros_br_mapa,
+           nota = paste0("Ensemble (média ponderada pelo TSS) de GLM, GBM, Random Forest e MaxEnt. ",
+                         "Variáveis: Bio-ORACLE v3 (2000–2020)."))
+mapa_final(binario_classes, "02_adequado_binario.png", "Classe", tipo = "classes",
+           cores = c("Não adequado" = "#d9d9d9", "Adequado" = "#DC6D37"),
+           registros = registros_br_mapa,
+           nota = paste0("Limiar que maximiza o TSS: ", round(limiar_global, 2), "."))
+mapa_final(incerteza_mapa, "03_incerteza.png", "CV entre\nos modelos",
+           cores = hcl.colors(9, "Purples", rev = TRUE),
+           nota = "Coeficiente de variação entre os modelos do ensemble: quanto maior, menor a concordância.")
+mapa_final(mess_mapa, "04_mess.png", "MESS", tipo = "divergente",
+           nota = "Valores negativos: condições fora das usadas na calibração (extrapolação).")
+
+# Validação qualitativa: células dentro dos limites fisiológicos da literatura
+limites <- LIMITES_FISIOLOGICOS[!is.na(LIMITES_FISIOLOGICOS)]
+if (length(limites) > 0) {
+  env_lim <- terra::mask(terra::crop(env_faixa, faixa_br), faixa_br)
+  dentro <- faixa_br
+  if ("sst_min" %in% names(limites)) dentro <- dentro * (env_lim[["sst_min"]] >= limites["sst_min"])
+  if ("sst_max" %in% names(limites)) dentro <- dentro * (env_lim[["sst_max"]] <= limites["sst_max"])
+  if ("sal_min" %in% names(limites)) dentro <- dentro * (env_lim[["sal_min"]] >= limites["sal_min"])
+  names(dentro) <- "dentro_dos_limites"
+
+  concordancia <- as.data.frame(c(binario, dentro), na.rm = TRUE)
+  tab_conc <- table(modelo = concordancia$adequado, fisiologia = concordancia$dentro_dos_limites)
+  write.csv(as.data.frame(tab_conc), file.path(PASTA_TAB, "08_concordancia_fisiologia.csv"),
+            row.names = FALSE)
+  salvar_mapa(dentro, "08_limites_fisiologicos.png",
+              "Dentro dos limites fisiológicos da literatura", contorno,
+              col = c("grey80", "darkgreen"))
+  print(tab_conc)
+}
+
+# ------------------------------------------------------------------------------
+# 8.1 – Substrato dos registros brasileiros: natural × artificial
+# ------------------------------------------------------------------------------
+# Usa a coluna "substrato" das planilhas de ocorrência. Pode ser a classe pronta
+# ("natural"/"artificial") ou a descrição ("marina", "costão rochoso", "raiz de
+# mangue"...); a função classificar_substrato() agrupa.
+# Leitura para a discussão: se os registros em substrato artificial estiverem
+# em ambientes menos adequados que os naturais, as estruturas podem estar
+# ajudando a ostra a se manter em locais marginais (facilitação).
+
+reg_subs <- oc_ajustadas[oc_ajustadas$regiao == "Brasil" &
+                           !is.na(oc_ajustadas$tipo_substrato), ]
+if (nrow(reg_subs) > 0) {
+  reg_subs$adequabilidade <- terra::extract(adeq, as.matrix(reg_subs[, c("lon", "lat")]))[, 1]
+
+  tab_subs <- as.data.frame(table(tipo_substrato = reg_subs$tipo_substrato),
+                            stringsAsFactors = FALSE)
+  names(tab_subs)[2] <- "registros"
+  tab_subs$pct <- round(100 * tab_subs$registros / sum(tab_subs$registros), 1)
+  med <- tapply(reg_subs$adequabilidade, reg_subs$tipo_substrato, median, na.rm = TRUE)
+  tab_subs$adequabilidade_mediana <- round(med[tab_subs$tipo_substrato], 3)
+
+  write.csv(tab_subs, file.path(PASTA_TAB, "08_substrato_resumo.csv"), row.names = FALSE)
+  write.csv(reg_subs[, c("id", "fonte", "lon", "lat", "substrato", "tipo_substrato",
+                         "adequabilidade")],
+            file.path(PASTA_TAB, "08_substrato_por_registro.csv"), row.names = FALSE)
+  print(tab_subs)
+
+  png(file.path(PASTA_FIG, "08_substrato_registros.png"), width = 2800, height = 1400, res = 300)
+  par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+  cores_subs <- c(artificial = "#7f7f7f", natural = "#4daf4a", outro = "#cccccc")
+  barplot(setNames(tab_subs$registros, tab_subs$tipo_substrato),
+          col = cores_subs[tab_subs$tipo_substrato], ylab = "Registros no Brasil",
+          main = "Substrato dos registros")
+  boxplot(adequabilidade ~ tipo_substrato, data = reg_subs, ylim = c(0, 1),
+          col = cores_subs[sort(unique(reg_subs$tipo_substrato))],
+          xlab = "", ylab = "Adequabilidade no local",
+          main = "Adequabilidade × substrato")
+  abline(h = limiar_global, lty = 2, col = "red")
+  dev.off()
+} else {
+  message("Nenhum registro brasileiro com a coluna 'substrato' preenchida: ",
+          "a análise de substrato (8.1) foi pulada.")
+}
+
+
+# ==============================================================================
+# MÓDULO 9 – TESTE DE TRANSFERÊNCIA (calibra sem o Brasil, testa no Brasil)
+# ==============================================================================
+
+# É o teste mais forte do trabalho: um modelo que nunca viu os registros
+# brasileiros consegue apontar os lugares onde a ostra já invadiu?
+
+pres_br  <- oc_final[oc_final$regiao == "Brasil", c("lon", "lat")]
+pres_ext <- oc_final[oc_final$regiao == "Exterior", c("lon", "lat")]
+
+if (RODAR_TRANSFERENCIA && nrow(pres_br) >= 5 && nrow(pres_ext) >= 20) {
+
+  etapa("MÓDULO 9 – TESTE DE TRANSFERÊNCIA")
+
+  faixa_sem_br <- terra::mask(faixa, brasil_buffer, inverse = TRUE)
+  pa_transf <- gerar_pseudoausencias(
+    faixa_sem_br, pres_ext, max(N_PA_MIN, PA_POR_PRESENCA * nrow(pres_ext)), N_PA_REP
+  )
+
+  transf <- rodar_biomod("SaccTransf", pa_transf, env_sel, fn_blocos = NULL,
+                         var_import = 0)
+  proj_transf <- projetar(transf, env_br, "BrasilTransf")
+  limiar_transf <- limiar_ensemble(transf)
+
+  adeq_pres_br <- terra::extract(proj_transf$adeq, as.matrix(pres_br))[, 1]
+  adeq_fundo_br <- terra::values(proj_transf$adeq, na.rm = TRUE)[, 1]
+
+  teste_transf <- data.frame(
+    presencas_brasil           = nrow(pres_br),
+    boyce_no_brasil            = round(indice_boyce(adeq_pres_br, adeq_fundo_br), 3),
+    pct_presencas_adequadas    = round(100 * mean(adeq_pres_br >= limiar_transf, na.rm = TRUE), 1),
+    pct_costa_adequada         = round(100 * mean(adeq_fundo_br >= limiar_transf), 1),
+    adeq_media_nas_presencas   = round(mean(adeq_pres_br, na.rm = TRUE), 3),
+    adeq_media_na_costa        = round(mean(adeq_fundo_br), 3)
+  )
+  write.csv(teste_transf, file.path(PASTA_TAB, "09_teste_transferencia.csv"), row.names = FALSE)
+  print(teste_transf)
+
+  # Leitura: Boyce > 0 e % de presenças adequadas bem maior que a % da costa
+  # adequada indicam que o modelo de fora "acerta" a invasão no Brasil.
+
+  salvar_mapa(proj_transf$adeq, "09_transferencia_brasil.png",
+              "Modelo calibrado sem o Brasil (pontos = registros brasileiros)",
+              contorno, range = c(0, 1))
+  png(file.path(PASTA_FIG, "09_transferencia_brasil_pontos.png"),
+      width = 2400, height = 2600, res = 300)
+  terra::plot(proj_transf$adeq, col = PALETA_ADEQ, range = c(0, 1),
+              main = "Calibrado sem o Brasil × registros brasileiros")
+  terra::lines(contorno, col = "grey35", lwd = 0.4)
+  points(pres_br$lon, pres_br$lat, pch = 21, bg = "cyan", cex = 0.8)
+  dev.off()
+
+  # Raster para editar o mapa em outro programa (QGIS)
+  terra::writeRaster(proj_transf$adeq, file.path(PASTA_RASTER, "adequabilidade_transferencia.tif"),
+                     overwrite = TRUE)
+
+  mapa_final(proj_transf$adeq, "05_transferencia.png", "Adequabilidade\nambiental",
+             limites = c(0, 1), registros = pres_br,
+             nota = "Modelo calibrado SEM os registros brasileiros; os pontos são os registros no Brasil.")
+}
+
+
+# ==============================================================================
+# DISTÂNCIA ÀS INFRAESTRUTURAS (usada nos Módulos 10, 11 e 12)
+# ==============================================================================
+
+DIST_MAX_COSTA_KM <- 30  # infraestrutura em terra a mais de 30 km da faixa sai
+TIPOS_MARINHOS    <- c("plataformas", "pocos")  # nunca saem por distância da costa
+
+# Distância (km) de cada célula até a faixa costeira brasileira
+VERSAO_FAIXA_BR <- list(VERSAO_DADOS_AMB, FATOR_AGREGACAO, FAIXA_COSTEIRA_CEL,
+                        BUFFER_BRASIL_KM, lat_lim)
+dist_ate_faixa <- salvo("09_distancia_ate_faixa", depende_de = VERSAO_FAIXA_BR,
+                        terra::distance(faixa_br) / 1000)
+
+infra <- list()
+for (tipo in names(ARQ_INFRA)) {
+  if (!file.exists(ARQ_INFRA[[tipo]])) {
+    warning("Arquivo não encontrado: ", ARQ_INFRA[[tipo]])
+    next
+  }
+  d <- ler_coordenadas(ARQ_INFRA[[tipo]], tipo)
+  d <- d[!is.na(d$lon) & !is.na(d$lat), ]
+
+  # Fica com o que está no mar (plataformas, poços) ou perto da costa (portos).
+  # Portos fluviais do interior (ex.: Manaus) saem da análise.
+  # A base da ANTAQ também tem alguns pontos no exterior: saem por estarem fora
+  # da área do Brasil (dist_ate_faixa = NA).
+  xy <- as.matrix(d[, c("lon", "lat")])
+  dist_costa <- terra::extract(dist_ate_faixa, xy)[, 1]
+  dentro_do_brasil <- !is.na(dist_costa)
+  no_mar <- !is.na(terra::extract(env[[1]], xy)[, 1])
+  manter <- dentro_do_brasil &
+    (tipo %in% TIPOS_MARINHOS | no_mar | dist_costa <= DIST_MAX_COSTA_KM)
+  if (any(!manter)) {
+    message(tipo, ": ", sum(!manter), " pontos longe da costa foram descartados.")
+  }
+  infra[[tipo]] <- d[manter, ]
+}
+
+distancias <- NULL
+if (length(infra) > 0) {
+  # Grade sem máscara: a distância é calculada sobre o mar e a terra e depois
+  # recortada para a faixa costeira.
+  distancias <- salvo("09_distancias_infraestruturas",
+                      depende_de = list(VERSAO_FAIXA_BR, infra), {
+    grade <- terra::rast(faixa_br)
+    camadas_dist <- lapply(names(infra), function(tipo) {
+      pts <- terra::vect(infra[[tipo]], geom = c("lon", "lat"), crs = "EPSG:4326")
+      alvo <- terra::rasterize(pts, grade, field = 1)
+      d_km <- terra::distance(alvo) / 1000
+      names(d_km) <- paste0("dist_", tipo)
+      terra::mask(d_km, faixa_br)
+    })
+    terra::rast(camadas_dist)
+  })
+}
+
+
+# ==============================================================================
+# MAPAS DE CONTEXTO: ÁREA DE ESTUDO E REGISTROS GLOBAIS (mapas finais "00")
+# ==============================================================================
+
+# 00_area_de_estudo.png  : costa brasileira, faixa costeira de estudo, registros,
+#                          portos, plataformas, campos da ANP, ZEE e mapa de
+#                          localização (América do Sul) no canto.
+# 00_registros_globais.png: todos os registros usados na calibração, no mundo.
+
+mapas_de_contexto <- function() {
+  # Países do mundo (Natural Earth), para o mapa de localização e o mapa global
+  mundo <- tryCatch(
+    sf::st_make_valid(rnaturalearth::ne_countries(scale = 50, returnclass = "sf")),
+    error = function(e) NULL
+  )
+  if (!is.null(mundo)) {
+    # Países que cruzam a linha de data (ex.: Fiji) viram linhas horizontais
+    # atravessando o mapa; cortar na linha de data resolve. Se não der, saem.
+    mundo <- tryCatch(
+      sf::st_wrap_dateline(mundo, options = c("WRAPDATELINE=YES", "DATELINEOFFSET=180")),
+      error = function(e) mundo[!mundo$admin %in% c("Fiji", "Antarctica"), ]
+    )
+  }
+  brasil_sf <- sf::st_union(estados)
+
+  # ---------------------------------------------------------------------------
+  # 00a – Área de estudo
+  # ---------------------------------------------------------------------------
+  tryCatch({
+    faixa_df <- terra::as.data.frame(faixa_br, xy = TRUE, na.rm = TRUE)
+    registros <- oc_ajustadas[oc_ajustadas$regiao == "Brasil", c("lon", "lat")]
+    nomes_tipo <- c(portos = "Portos e terminais", plataformas = "Plataformas")
+    pontos <- do.call(rbind, lapply(intersect(names(nomes_tipo), names(infra)), function(t) {
+      data.frame(lon = infra[[t]]$lon, lat = infra[[t]]$lat, tipo = nomes_tipo[[t]])
+    }))
+    if (nrow(registros) > 0) {
+      pontos <- rbind(pontos, data.frame(lon = registros$lon, lat = registros$lat,
+                                         tipo = "Registros"))
+    }
+    formas <- c("Portos e terminais" = 16, "Plataformas" = 17, "Registros" = 8)
+    cores_pt <- c("Portos e terminais" = "grey25", "Plataformas" = "grey25", "Registros" = "red3")
+    quebras <- intersect(names(formas), unique(pontos$tipo))
+    rotulos <- as.list(quebras)
+    rotulos[quebras == "Registros"] <- list(rotulo_especie("Registros de "))
+
+    extensao <- c(range(faixa_df$x), range(faixa_df$y)) + c(-1, 1, -1, 1)
+
+    g <- ggplot2::ggplot()
+    if (!is.null(mundo)) {
+      g <- g + ggplot2::geom_sf(data = mundo, fill = "grey90", colour = "grey70", linewidth = 0.15)
+    }
+    g <- g +
+      ggplot2::geom_sf(data = estados, fill = "grey97", colour = "grey55", linewidth = 0.15) +
+      ggplot2::geom_raster(data = faixa_df,
+                           ggplot2::aes(x = x, y = y, fill = "Faixa costeira de estudo (~30 km)")) +
+      ggplot2::scale_fill_manual(name = NULL,
+                                 values = c("Faixa costeira de estudo (~30 km)" = "#9ecae1"))
+    if (file.exists(ARQ_ZEE)) {
+      zee <- sf::st_transform(sf::st_read(ARQ_ZEE, quiet = TRUE), 4326)
+      g <- g + ggplot2::geom_sf(data = zee, ggplot2::aes(linetype = "Limite da ZEE (200 milhas)"),
+                                colour = "grey35", linewidth = 0.3) +
+        ggplot2::scale_linetype_manual(name = NULL, values = c("Limite da ZEE (200 milhas)" = "dashed"))
+    }
+    if (file.exists(ARQ_CAMPOS)) {
+      campos_sf <- sf::st_transform(sf::st_read(ARQ_CAMPOS, quiet = TRUE), 4326)
+      g <- g + ggplot2::geom_sf(data = campos_sf, ggplot2::aes(colour = "Campos de produção (ANP)"),
+                                fill = NA, linewidth = 0.25) +
+        ggplot2::scale_colour_manual(name = NULL, values = c("Campos de produção (ANP)" = "purple"))
+    }
+    g <- g +
+      suppressWarnings(ggplot2::geom_sf_text(data = estados, ggplot2::aes(label = abbrev_state),
+                                             size = 2.1, colour = "grey40")) +
+      ggplot2::geom_point(data = pontos, ggplot2::aes(x = lon, y = lat, shape = tipo),
+                          colour = cores_pt[pontos$tipo], size = 1.3) +
+      ggplot2::scale_shape_manual(name = NULL, values = formas, breaks = quebras,
+                                  labels = do.call(expression, rotulos)) +
+      ggplot2::guides(shape = ggplot2::guide_legend(override.aes = list(colour = cores_pt[quebras],
+                                                                        size = 2))) +
+      ggplot2::annotate("text", x = extensao[2] - 2.8, y = mean(extensao[3:4]) - 1,
+                        label = "Oceano\nAtlântico", fontface = "italic", colour = "steelblue4",
+                        size = 3.2) +
+      ggplot2::coord_sf(xlim = extensao[1:2], ylim = extensao[3:4], expand = FALSE) +
+      ggspatial::annotation_north_arrow(location = "tl", which_north = "true",
+                                        style = ggspatial::north_arrow_fancy_orienteering,
+                                        height = grid::unit(0.9, "cm"), width = grid::unit(0.9, "cm")) +
+      ggspatial::annotation_scale(location = "bl", width_hint = 0.25, text_cex = 0.6) +
+      ggplot2::labs(x = "Longitude", y = "Latitude",
+                    caption = paste0("Faixa costeira: células a até ~30 km da costa (área de ",
+                                     "projeção do modelo).\nPortos e terminais: ANTAQ; plataformas ",
+                                     "e campos: ANP. Limites estaduais: IBGE (2020);\npaíses: ",
+                                     "Natural Earth. Datum: WGS 84 (EPSG:4326).")) +
+      ggplot2::theme_minimal(base_size = 9) +
+      ggplot2::theme(panel.grid.major = ggplot2::element_line(colour = "grey88", linewidth = 0.2),
+                     panel.border = ggplot2::element_rect(fill = NA, colour = "grey40", linewidth = 0.3),
+                     panel.background = ggplot2::element_rect(fill = "#f4f9fd", colour = NA),
+                     legend.position = "bottom", legend.box = "vertical",
+                     legend.spacing.y = grid::unit(0, "cm"),
+                     legend.margin = ggplot2::margin(0, 0, 0, 0),
+                     legend.key.height = grid::unit(0.35, "cm"),
+                     legend.key.width = grid::unit(0.6, "cm"),
+                     plot.caption = ggplot2::element_text(colour = "grey40", size = 6.5, hjust = 0))
+
+    # Mapa de localização: América do Sul com o Brasil e o retângulo do mapa principal
+    localizacao <- NULL
+    if (!is.null(mundo)) {
+      localizacao <- ggplot2::ggplot() +
+        ggplot2::geom_sf(data = mundo, fill = "grey85", colour = "white", linewidth = 0.1) +
+        ggplot2::geom_sf(data = brasil_sf, fill = "grey55", colour = NA) +
+        ggplot2::annotate("rect", xmin = extensao[1], xmax = extensao[2],
+                          ymin = extensao[3], ymax = extensao[4],
+                          fill = NA, colour = "red3", linewidth = 0.4) +
+        ggplot2::coord_sf(xlim = c(-92, -26), ylim = c(-57, 15), expand = FALSE) +
+        ggplot2::theme_void() +
+        ggplot2::theme(panel.background = ggplot2::element_rect(fill = "white", colour = "grey30",
+                                                                linewidth = 0.4))
+    }
+
+    # O mapa de localização vai na margem direita, fora do painel, para não
+    # cobrir a costa. Se ficar mal posicionado, ajuste x e y (0 a 1).
+    png(file.path(PASTA_MAPAS, "00_area_de_estudo.png"), width = 7, height = 9,
+        units = "in", res = 300, bg = "white")
+    print(g)
+    if (!is.null(localizacao)) {
+      print(localizacao, vp = grid::viewport(x = 0.9, y = 0.86, width = 0.18, height = 0.22))
+    }
+    dev.off()
+  }, error = function(e) warning("Mapa da área de estudo não foi gerado: ", conditionMessage(e)))
+
+  # ---------------------------------------------------------------------------
+  # 00b – Registros globais usados na calibração
+  # ---------------------------------------------------------------------------
+  tryCatch({
+    reg <- oc_final[, c("lon", "lat", "regiao")]
+    reg$regiao <- factor(ifelse(reg$regiao == "Brasil", "Brasil", "Outros países"),
+                         levels = c("Brasil", "Outros países"))
+    g2 <- ggplot2::ggplot()
+    if (!is.null(mundo)) {
+      g2 <- g2 + ggplot2::geom_sf(data = mundo, fill = "grey88", colour = "white", linewidth = 0.1)
+    }
+    g2 <- g2 +
+      ggplot2::geom_point(data = reg, ggplot2::aes(x = lon, y = lat, colour = regiao),
+                          size = 0.9, alpha = 0.8) +
+      ggplot2::scale_colour_manual(name = rotulo_especie("Registros de "),
+                                   values = c("Brasil" = "red3", "Outros países" = "#2166ac"),
+                                   labels = paste0(levels(reg$regiao), " (n = ",
+                                                   as.vector(table(reg$regiao)), ")")) +
+      ggplot2::coord_sf(xlim = c(-180, 180), ylim = lat_lim, expand = FALSE) +
+      ggspatial::annotation_north_arrow(location = "tr", which_north = "true",
+                                        style = ggspatial::north_arrow_fancy_orienteering,
+                                        height = grid::unit(0.8, "cm"), width = grid::unit(0.8, "cm")) +
+      ggplot2::labs(x = "Longitude", y = "Latitude",
+                    caption = paste0("Registros após a limpeza, a revisão taxonômica e o filtro de ",
+                                     DIST_FILTRO_KM, " km (os usados para calibrar o modelo global).\n",
+                                     "Datum: WGS 84 (EPSG:4326). Países: Natural Earth.")) +
+      ggplot2::theme_minimal(base_size = 9) +
+      ggplot2::theme(panel.grid.major = ggplot2::element_line(colour = "grey88", linewidth = 0.2),
+                     panel.border = ggplot2::element_rect(fill = NA, colour = "grey40", linewidth = 0.3),
+                     panel.background = ggplot2::element_rect(fill = "#f4f9fd", colour = NA),
+                     legend.position = "bottom",
+                     legend.title = ggplot2::element_text(face = "bold"),
+                     plot.caption = ggplot2::element_text(colour = "grey40", size = 6.5, hjust = 0))
+    suppressWarnings(ggplot2::ggsave(file.path(PASTA_MAPAS, "00_registros_globais.png"), g2,
+                                     width = 10, height = 1.6 + 9 * diff(lat_lim) / 360, dpi = 300,
+                                     bg = "white"))
+  }, error = function(e) warning("Mapa dos registros globais não foi gerado: ", conditionMessage(e)))
+}
+
+mapas_de_contexto()
+
+
+# ==============================================================================
+# MÓDULO 10 – OS TRÊS CENÁRIOS DO TCC 1 (só Brasil)
+# ==============================================================================
+
+# (I) só ambientais, (II) só antrópicas, (III) ambientais + antrópicas.
+# Calibrado só com os registros brasileiros e na faixa costeira brasileira.
+#
+# ATENÇÃO na interpretação: as variáveis antrópicas também representam o
+# esforço de coleta (há mais gente procurando a ostra perto de portos do
+# Sudeste). Um cenário II ou III com bom desempenho NÃO prova que as
+# infraestruturas causam a invasão; ele mostra que os registros estão perto
+# delas. Por isso o risco final (Módulo 11) usa o modelo ambiental global.
+
+if (RODAR_CENARIOS_BR && nrow(pres_br) >= 10 && !is.null(distancias)) {
+
+  etapa("MÓDULO 10 – TRÊS CENÁRIOS (BRASIL)")
+
+  # Seleção das variáveis antrópicas pelo mesmo critério de correlação
+  fundo_br <- terra::spatSample(c(env_br, distancias), 5000, method = "random",
+                                na.rm = TRUE)
+  sel_antr <- selecionar_variaveis(fundo_br, names(distancias),
+                                   LIMIAR_CORRELACAO, VIF_MAX)$escolhidas
+  sel_ambos <- selecionar_variaveis(fundo_br, c(VARIAVEIS, sel_antr),
+                                    LIMIAR_CORRELACAO, VIF_MAX)$escolhidas
+
+  cenarios <- list(
+    I_ambiental = VARIAVEIS,
+    II_antropico = sel_antr,
+    III_ambos = sel_ambos
+  )
+  print(cenarios)
+
+  env_cenarios <- c(env_br, distancias)
+  pa_br <- gerar_pseudoausencias(
+    faixa_br, pres_br, max(N_PA_MIN, PA_POR_PRESENCA * nrow(pres_br)), N_PA_REP
+  )
+
+  resultados_cen <- list()
+  mapas_cen <- list()
+  for (cen in names(cenarios)) {
+    nome <- paste0("SaccBR", gsub("[^A-Za-z]", "", cen))
+    res <- rodar_biomod(
+      nome      = nome,
+      pa        = pa_br,
+      env       = env_cenarios[[cenarios[[cen]]]],
+      fn_blocos = function(xy, pres) blocos_por_latitude(xy, pres, K_BLOCOS_BRASIL),
+      depende_tambem = list(infra, VERSAO_FAIXA_BR)  # as distâncias são variáveis aqui
+    )
+    resumo <- salvar_avaliacao(res, paste0("10_", cen))
+    salvar_importancia_e_curvas(res, paste0("10_", cen))
+    resumo$cenario <- cen
+    resumo$variaveis <- paste(cenarios[[cen]], collapse = " + ")
+    resultados_cen[[cen]] <- resumo
+
+    mapas_cen[[cen]] <- projetar(res, env_cenarios[[cenarios[[cen]]]],
+                                 paste0("proj", nome))$adeq
+  }
+
+  comparacao <- do.call(rbind, resultados_cen)
+  write.csv(comparacao, file.path(PASTA_TAB, "10_comparacao_cenarios.csv"), row.names = FALSE)
+  print(comparacao[comparacao$metrica == "TSS", c("cenario", "algoritmo", "media", "desvio")])
+
+  # Rasters para editar os mapas em outro programa (QGIS)
+  for (cen in names(mapas_cen)) {
+    terra::writeRaster(mapas_cen[[cen]], file.path(PASTA_RASTER, paste0("adequabilidade_cenario_", cen, ".tif")),
+                       overwrite = TRUE)
+  }
+
+  png(file.path(PASTA_FIG, "10_mapas_cenarios.png"), width = 4200, height = 2200, res = 300)
+  par(mfrow = c(1, length(mapas_cen)))
+  for (cen in names(mapas_cen)) {
+    terra::plot(mapas_cen[[cen]], col = PALETA_ADEQ, range = c(0, 1),
+                main = gsub("_", " ", cen))
+    terra::lines(contorno, col = "grey35", lwd = 0.3)
+  }
+  dev.off()
+
+  mapa_final(setNames(mapas_cen, c("I – Ambiental", "II – Antrópico", "III – Ambiental + antrópico")[seq_along(mapas_cen)]),
+             "06_tres_cenarios.png", "Adequabilidade\nambiental", limites = c(0, 1),
+             registros = pres_br, colunas = 3, largura = 11, altura = 5.5,
+             nota = "Modelos calibrados só com os registros brasileiros (comparação dos cenários do TCC 1).")
+}
+
+
+# ==============================================================================
+# MÓDULO 11 – PRESSÃO ANTRÓPICA E RISCO
+# ==============================================================================
+
+if (RODAR_RISCO && !is.null(distancias)) {
+
+  etapa("MÓDULO 11 – PRESSÃO ANTRÓPICA E RISCO")
+
+  # Pressão de cada tipo de infraestrutura: exp(−distância / DECAIMENTO_KM)
+  #   0 km  → 1,00
+  #   50 km → 0,37
+  #   150 km → 0,05
+  # Pressão total = média ponderada pelos PESOS_PRESSAO.
+  componentes <- exp(-distancias / DECAIMENTO_KM)
+  names(componentes) <- sub("dist_", "", names(distancias))
+  pesos <- PESOS_PRESSAO[names(componentes)]
+  pesos[is.na(pesos)] <- 1
+  pressao <- terra::weighted.mean(componentes, w = pesos)
+  names(pressao) <- "pressao"
+
+  # Risco contínuo
+  risco <- adeq * pressao
+  names(risco) <- "risco"
+
+  # Risco em classes
+  #   Baixo = ambiente não adequado (abaixo do limiar do TSS)
+  #   Médio = ambiente adequado, mas longe das infraestruturas (pressão < 0,37)
+  #   Alto  = ambiente adequado e a menos de ~DECAIMENTO_KM de infraestruturas
+  classe <- terra::ifel(adeq < limiar_global, 1,
+                        terra::ifel(pressao < exp(-1), 2, 3))
+  levels(classe) <- data.frame(id = 1:3, risco = c("Baixo", "Médio", "Alto"))
+
+  terra::writeRaster(pressao, file.path(PASTA_RASTER, "pressao_antropica.tif"), overwrite = TRUE)
+  terra::writeRaster(risco, file.path(PASTA_RASTER, "risco_continuo.tif"), overwrite = TRUE)
+  terra::writeRaster(classe, file.path(PASTA_RASTER, "risco_classes.tif"), overwrite = TRUE)
+
+  salvar_mapa(pressao, "11_pressao_antropica.png", "Pressão antrópica (0–1)",
+              contorno, col = hcl.colors(100, "Inferno", rev = TRUE), range = c(0, 1))
+  salvar_mapa(risco, "11_risco_continuo.png", "Risco = adequabilidade × pressão",
+              contorno, col = hcl.colors(100, "Reds", rev = TRUE))
+  salvar_mapa(classe, "11_risco_classes.png", "Risco de invasão", contorno,
+              col = c("#2c7bb6", "#fdae61", "#d7191c"))
+
+  mapa_final(pressao, "07_pressao_antropica.png", "Pressão\nantrópica",
+             cores = hcl.colors(9, "Inferno", rev = TRUE), limites = c(0, 1),
+             nota = paste0("Pressão = média de exp(−distância/", DECAIMENTO_KM,
+                           " km) a portos, plataformas e poços."))
+  mapa_final(risco, "08_risco_continuo.png", "Risco\n(adeq. × pressão)",
+             cores = hcl.colors(9, "Reds", rev = TRUE), registros = registros_br_mapa)
+  mapa_final(classe, "09_risco_classes.png", "Risco", tipo = "classes",
+             cores = CORES_CLASSE_RISCO, registros = registros_br_mapa,
+             nota = paste0("Baixo: abaixo do limiar do TSS. Médio: adequado e longe de infraestruturas. ",
+                           "Alto: adequado e a menos de ~", DECAIMENTO_KM, " km de infraestruturas."))
+
+
+  # ============================================================================
+  # MÓDULO 12 – RISCO POR INFRAESTRUTURA, ESTADO E REGIÃO
+  # ============================================================================
+
+  etapa("MÓDULO 12 – RISCO POR INFRAESTRUTURA, ESTADO E REGIÃO")
+
+  classificar <- function(a, limiar) {
+    cut(a, breaks = c(-Inf, limiar, limiar + (1 - limiar) / 2, Inf),
+        labels = c("Baixo", "Médio", "Alto"), right = FALSE)
+  }
+
+
+  # --------------------------------------------------------------------------
+  # 12.1 – Cada infraestrutura
+  # --------------------------------------------------------------------------
+  # adeq_costa = maior adequabilidade da faixa costeira num raio de
+  #              BUFFER_INFRA_KM (portos e terminais costeiros).
+  # adeq_local = adequabilidade da água de superfície no próprio ponto
+  #              (plataformas no mar: as pernas da plataforma são um
+  #              "costão artificial" no meio do oceano). É uma extrapolação:
+  #              confira a coluna mess_local (negativo = pouco confiável).
+
+  env_completo_sel <- env[[VARIAVEIS]]
+  tabela_infra <- list()
+
+  for (tipo in names(infra)) {
+    d <- infra[[tipo]]
+    pts <- terra::vect(d, geom = c("lon", "lat"), crs = "EPSG:4326")
+
+    d$adeq_costa <- terra::extract(adeq, terra::buffer(pts, BUFFER_INFRA_KM * 1000),
+                                   fun = max, na.rm = TRUE)[, 2]
+    d$adeq_costa[!is.finite(d$adeq_costa)] <- NA
+
+    valores_local <- terra::extract(env_completo_sel, pts, ID = FALSE)
+    ok <- stats::complete.cases(valores_local)
+    d$adeq_local <- NA_real_
+    d$mess_local <- NA_real_
+    if (any(ok)) {
+      d$adeq_local[ok] <- projetar(global, valores_local[ok, , drop = FALSE],
+                                   paste0("pontos_", tipo),
+                                   xy = d[ok, c("lon", "lat")])$adeq
+      d$mess_local[ok] <- round(calcular_mess_valores(
+        valores_local[ok, , drop = FALSE], global$dados@data.env.var
+      ), 1)
+    }
+
+    d$adeq_usada <- ifelse(is.na(d$adeq_costa), d$adeq_local, d$adeq_costa)
+    d$origem <- ifelse(is.na(d$adeq_costa), "local (mar aberto)", "faixa costeira")
+    d$pressao <- terra::extract(pressao, pts)[, 2]
+    d$classe <- classificar(d$adeq_usada, limiar_global)
+    d <- cbind(d, estado_mais_proximo(d$lon, d$lat))
+    d$tipo <- tipo
+    tabela_infra[[tipo]] <- d
+  }
+
+  tabela_infra <- do.call(rbind, unname(tabela_infra))
+  tabela_infra <- tabela_infra[order(-tabela_infra$adeq_usada), ]
+
+  # Valor tirado do mar aberto fora das condições da calibração = pouco confiável
+  tabela_infra$confiabilidade <- ifelse(
+    tabela_infra$origem == "local (mar aberto)" &
+      !is.na(tabela_infra$mess_local) & tabela_infra$mess_local < 0,
+    "baixa (extrapolação, MESS < 0)", "ok"
+  )
+
+  # --------------------------------------------------------------------------
+  # 12.2 – Distância ao registro conhecido mais próximo
+  # --------------------------------------------------------------------------
+  # Usa todos os registros brasileiros limpos (antes do filtro de 10 km).
+  # CUIDADO na discussão: estar perto de um registro também reflete onde as
+  # pessoas procuraram a ostra (esforço de coleta), não só onde ela está.
+
+  registros_br <- oc[oc$regiao == "Brasil", c("lon", "lat")]
+  tabela_infra$dist_registro_km <- NA_real_
+  if (nrow(registros_br) > 0) {
+    v_registros <- terra::vect(registros_br, geom = c("lon", "lat"), crs = "EPSG:4326")
+    v_infra <- terra::vect(tabela_infra[, c("lon", "lat")], geom = c("lon", "lat"),
+                           crs = "EPSG:4326")
+    d_km <- terra::distance(v_infra, v_registros) / 1000
+    tabela_infra$dist_registro_km <- round(apply(d_km, 1, min), 1)
+  }
+  tabela_infra$perto_de_registro <- !is.na(tabela_infra$dist_registro_km) &
+    tabela_infra$dist_registro_km <= DIST_REGISTRO_KM
+
+  write.csv(tabela_infra, file.path(PASTA_TAB, "12_risco_por_infraestrutura.csv"),
+            row.names = FALSE)
+
+  resumo_infra <- as.data.frame.matrix(table(tabela_infra$tipo, tabela_infra$classe))
+  write.csv(resumo_infra, file.path(PASTA_TAB, "12_classes_por_tipo_de_infraestrutura.csv"))
+  print(resumo_infra)
+
+  perto <- tabela_infra[tabela_infra$perto_de_registro, ]
+  resumo_perto <- as.data.frame.matrix(
+    table(factor(perto$tipo, levels = names(infra)), perto$classe)
+  )
+  write.csv(resumo_perto, file.path(PASTA_TAB, "12_infraestruturas_perto_de_registros.csv"))
+  cat("\nInfraestruturas a até", DIST_REGISTRO_KM, "km de um registro conhecido:\n")
+  print(resumo_perto)
+
+  # --------------------------------------------------------------------------
+  # 12.3 – Mapas das infraestruturas
+  # --------------------------------------------------------------------------
+
+  campos <- NULL
+  if (file.exists(ARQ_CAMPOS)) {
+    campos <- terra::project(terra::vect(ARQ_CAMPOS), "EPSG:4326")
+  }
+
+  cores_classe <- c(Baixo = "#2c7bb6", Médio = "#fdae61", Alto = "#d7191c")
+  formas <- c(portos = 21, plataformas = 24, pocos = 22)
+  rotulos_infra <- c(portos = "Portos e terminais", plataformas = "Plataformas",
+                     pocos = "Poços")
+  rotulo <- function(tipos) {
+    r <- rotulos_infra[tipos]
+    ifelse(is.na(r), tipos, r)
+  }
+
+  desenhar_infra <- function(d, cex = 0.8) {
+    if (nrow(d) == 0) return(invisible())
+    cor <- cores_classe[as.character(d$classe)]
+    cor[is.na(cor)] <- "grey60"
+    forma <- formas[d$tipo]
+    forma[is.na(forma)] <- 23
+    points(d$lon, d$lat, pch = forma, bg = cor, col = "black", lwd = 0.3, cex = cex)
+  }
+
+  legenda_infra <- function(tipos, com_registros = FALSE, com_densidade = FALSE,
+                            com_sem_valor = FALSE) {
+    tipos <- intersect(names(formas), tipos)
+    rotulos <- c("Adequabilidade baixa", "Adequabilidade média", "Adequabilidade alta",
+                 rotulo(tipos))
+    pch <- c(rep(21, 3), formas[tipos])
+    fundo <- c(cores_classe, rep("white", length(tipos)))
+    cor <- rep("black", length(rotulos))
+    if (com_sem_valor) {
+      rotulos <- c(rotulos, "Sem valor (fora da faixa costeira)")
+      pch <- c(pch, 21); fundo <- c(fundo, "grey60"); cor <- c(cor, "black")
+    }
+    if (com_densidade) {
+      rotulos <- c(rotulos, paste(rotulo(INFRA_COMO_DENSIDADE), collapse = ", "))
+      pch <- c(pch, 20); fundo <- c(fundo, NA); cor <- c(cor, "grey30")
+    }
+    if (com_registros) {
+      rotulos <- c(rotulos, paste("Registro de S.", sub(".* ", "", ESPECIE)))
+      pch <- c(pch, 8); fundo <- c(fundo, NA); cor <- c(cor, "black")
+    }
+    if (!is.null(campos)) {
+      rotulos <- c(rotulos, "Campo de produção (ANP)")
+      pch <- c(pch, 0); fundo <- c(fundo, NA); cor <- c(cor, "purple")
+    }
+    # terra::add_legend respeita a área do mapa (o legend() comum fica cortado)
+    terra::add_legend("topright", legend = rotulos, pch = pch, pt.bg = fundo,
+                      col = cor, cex = 0.7, inset = 0.02, bg = "white",
+                      box.col = "grey60")
+  }
+
+  em_pontos <- tabela_infra[!tabela_infra$tipo %in% INFRA_COMO_DENSIDADE, ]
+  em_densidade <- tabela_infra[tabela_infra$tipo %in% INFRA_COMO_DENSIDADE, ]
+
+  # Mapa nacional: só os tipos em pontos (portos, plataformas)
+  png(file.path(PASTA_FIG, "12_infraestruturas_risco.png"), width = 2400, height = 2600, res = 300)
+  terra::plot(adeq, col = PALETA_ADEQ, range = c(0, 1),
+              main = "Infraestruturas por classe de adequabilidade")
+  terra::lines(contorno, col = "grey35", lwd = 0.4)
+  if (!is.null(campos)) terra::lines(campos, col = "purple", lwd = 0.4)
+  desenhar_infra(em_pontos)
+  legenda_infra(unique(em_pontos$tipo), com_sem_valor = anyNA(em_pontos$classe))
+  dev.off()
+
+  # Versões para os mapas finais (tipo com nome por extenso, classe como texto)
+  para_mapa <- function(d) {
+    data.frame(lon = d$lon, lat = d$lat, tipo = rotulo(d$tipo),
+               classe = as.character(d$classe), stringsAsFactors = FALSE)
+  }
+  mapa_final(adeq, "10_infraestruturas.png", "Adequabilidade\nambiental", limites = c(0, 1),
+             infra = para_mapa(em_pontos), campos = campos,
+             nota = "Portos e terminais (ANTAQ); plataformas e campos de produção, em roxo (ANP).")
+
+  # Densidade (poços): nº por célula de RES_DENSIDADE_GRAUS
+  if (nrow(em_densidade) > 0) {
+    grade_dens <- terra::rast(terra::ext(faixa_br), resolution = RES_DENSIDADE_GRAUS,
+                              crs = "EPSG:4326")
+    v_dens <- terra::vect(em_densidade, geom = c("lon", "lat"), crs = "EPSG:4326")
+    densidade <- terra::rasterize(v_dens, grade_dens, field = 1, fun = "sum")
+    names(densidade) <- "n"
+    terra::writeRaster(densidade, file.path(PASTA_RASTER, "densidade_pocos.tif"), overwrite = TRUE)
+
+    png(file.path(PASTA_FIG, "12_densidade_pocos.png"), width = 2400, height = 2600, res = 300)
+    terra::plot(densidade, col = hcl.colors(50, "Blues", rev = TRUE),
+                main = paste0("Densidade de ", tolower(paste(rotulo(INFRA_COMO_DENSIDADE), collapse = ", ")),
+                              " (nº por célula de ",
+                              format(RES_DENSIDADE_GRAUS, decimal.mark = ","), "°)"))
+    terra::lines(contorno, col = "grey35", lwd = 0.4)
+    if (!is.null(campos)) terra::lines(campos, col = "purple", lwd = 0.4)
+    dev.off()
+  }
+
+  # Recortes regionais: aqui os poços aparecem como pontos pequenos, sem classe
+  for (i in seq_len(nrow(REGIOES_ZOOM))) {
+    z <- REGIOES_ZOOM[i, ]
+    caixa <- terra::ext(z$lon_min, z$lon_max, z$lat_min, z$lat_max)
+    dentro <- function(d) {
+      d[d$lon >= z$lon_min & d$lon <= z$lon_max & d$lat >= z$lat_min & d$lat <= z$lat_max, ]
+    }
+
+    png(file.path(PASTA_FIG, paste0("12_zoom_", z$arquivo, ".png")),
+        width = 2600, height = 2400, res = 300)
+    terra::plot(adeq, col = PALETA_ADEQ, range = c(0, 1), ext = caixa, main = z$titulo)
+    terra::lines(contorno, col = "grey35", lwd = 0.6)
+    if (!is.null(campos)) terra::lines(campos, col = "purple", lwd = 0.6)
+    d_dens <- dentro(em_densidade)
+    points(d_dens$lon, d_dens$lat, pch = 20, cex = 0.25, col = "grey30")
+    d_pts <- dentro(em_pontos)
+    desenhar_infra(d_pts, cex = 1.1)
+    d_reg <- dentro(registros_br)
+    points(d_reg$lon, d_reg$lat, pch = 8, cex = 0.9, lwd = 1.2)
+    legenda_infra(unique(d_pts$tipo), com_registros = nrow(d_reg) > 0,
+                  com_densidade = nrow(d_dens) > 0,
+                  com_sem_valor = anyNA(d_pts$classe))
+    dev.off()
+
+    mapa_final(adeq, paste0("11_recorte_", z$arquivo, ".png"), "Adequabilidade\nambiental",
+               titulo = z$titulo, limites = c(0, 1),
+               registros = d_reg, infra = para_mapa(d_pts),
+               pocos = d_dens[, c("lon", "lat")], campos = campos,
+               extensao = c(z$lon_min, z$lon_max, z$lat_min, z$lat_max),
+               largura = 8.5, altura = 7, posicao_seta = "tl",
+               nota = "Portos e terminais (ANTAQ); plataformas, poços e campos de produção, em roxo (ANP).")
+  }
+
+  # --------------------------------------------------------------------------
+  # 12.4 – Estados e regiões
+  # --------------------------------------------------------------------------
+
+  celulas <- as.data.frame(c(adeq, binario, pressao, risco), xy = TRUE, na.rm = TRUE)
+  celulas <- cbind(celulas, estado_mais_proximo(celulas$x, celulas$y))
+  celulas$alto <- celulas$adequado & celulas$pressao >= exp(-1)
+
+  resumir_por <- function(grupo) {
+    out <- do.call(rbind, lapply(split(celulas, celulas[[grupo]]), function(g) {
+      data.frame(
+        celulas            = nrow(g),
+        adeq_media         = round(mean(g$adequabilidade), 3),
+        pct_costa_adequada = round(100 * mean(g$adequado), 1),
+        pressao_media      = round(mean(g$pressao), 3),
+        risco_medio        = round(mean(g$risco), 3),
+        pct_risco_alto     = round(100 * mean(g$alto), 1)
+      )
+    }))
+    out <- cbind(setNames(data.frame(rownames(out)), grupo), out)
+    out[order(-out$risco_medio), ]
+  }
+
+  por_estado <- resumir_por("uf")
+  por_regiao <- resumir_por("regiao")
+  write.csv(por_estado, file.path(PASTA_TAB, "12_risco_por_estado.csv"), row.names = FALSE)
+  write.csv(por_regiao, file.path(PASTA_TAB, "12_risco_por_regiao.csv"), row.names = FALSE)
+  print(por_estado)
+  print(por_regiao)
+
+  png(file.path(PASTA_FIG, "12_risco_por_estado.png"), width = 2400, height = 1800, res = 300)
+  par(mar = c(4, 4, 3, 1))
+  barplot(por_estado$risco_medio, names.arg = por_estado$uf, las = 2,
+          col = "firebrick", ylab = "Risco médio (adequabilidade × pressão)",
+          main = "Risco médio na faixa costeira por estado")
+  dev.off()
+}
+
+
+# ==============================================================================
+# MÓDULO 12B – MANGUEZAIS E MARISMAS (ambientes de alta importância ecológica)
+# ==============================================================================
+
+# Pergunta: quanto dos manguezais e marismas fica perto de costa adequada à
+# ostra e, se houver o Módulo 11, em área de risco alto?
+# Esses ambientes ficam em estuários e baías, onde o Bio-ORACLE quase não tem
+# dado. Por isso, cada célula com habitat recebe o MAIOR valor da faixa
+# costeira num raio de RAIO_HABITAT_CEL células (~11 km com 0,05°).
+
+habitats_ok <- ARQ_HABITATS[file.exists(ARQ_HABITATS)]
+
+if (length(habitats_ok) > 0) {
+
+  etapa("MÓDULO 12B – MANGUEZAIS E MARISMAS")
+
+  janela_hab <- 2 * RAIO_HABITAT_CEL + 1
+  maximo_vizinho <- function(r) {
+    terra::focal(r, w = janela_hab, fun = "max", na.rm = TRUE)
+  }
+  adeq_viz <- maximo_vizinho(adeq)
+  tem_risco <- exists("pressao") && !is.null(distancias)
+  if (tem_risco) pressao_viz <- maximo_vizinho(pressao)
+
+  grade_hab <- terra::rast(faixa_br)
+  area_celula <- terra::cellSize(grade_hab, unit = "km")
+  resumo_hab <- list()
+
+  for (h in names(habitats_ok)) {
+    camada_hab <- salvo(paste0("12B_habitat_", h),
+                        depende_de = list(VERSAO_FAIXA_BR, file.mtime(habitats_ok[[h]])), {
+      v <- terra::project(terra::vect(habitats_ok[[h]]), "EPSG:4326")
+      fracao <- terra::rasterize(v, grade_hab, cover = TRUE)  # fração da célula coberta
+      fracao * area_celula
+    })
+    names(camada_hab) <- "area_km2"
+
+    pilha <- c(camada_hab, adeq_viz)
+    names(pilha) <- c("area_km2", "adequabilidade")
+    if (tem_risco) {
+      pilha <- c(pilha, pressao_viz)
+      names(pilha)[3] <- "pressao"
+    }
+    cel <- as.data.frame(pilha, xy = TRUE, na.rm = FALSE)
+    cel <- cel[!is.na(cel$area_km2) & cel$area_km2 > 0, ]
+    cel <- cbind(cel, estado_mais_proximo(cel$x, cel$y))
+
+    cel$classe <- ifelse(is.na(cel$adequabilidade), "Sem valor",
+                  ifelse(cel$adequabilidade < limiar_global, "Baixo",
+                  if (tem_risco) ifelse(cel$pressao < exp(-1), "Médio", "Alto") else "Adequado"))
+
+    niveis <- if (tem_risco) c("Baixo", "Médio", "Alto", "Sem valor") else
+      c("Baixo", "Adequado", "Sem valor")
+    area_por_classe <- tapply(cel$area_km2, list(cel$uf, factor(cel$classe, levels = niveis)), sum)
+    area_por_classe[is.na(area_por_classe)] <- 0
+    tab <- data.frame(uf = rownames(area_por_classe),
+                      area_total_km2 = round(rowSums(area_por_classe), 1),
+                      round(area_por_classe, 1), check.names = FALSE)
+    tab$pct_area_adequada <- round(100 * (tab$area_total_km2 - tab[["Baixo"]] - tab[["Sem valor"]]) /
+                                     tab$area_total_km2, 1)
+    tab <- tab[order(-tab$area_total_km2), ]
+    total <- data.frame(uf = "BRASIL", t(colSums(tab[, -c(1, ncol(tab))])), check.names = FALSE)
+    total$pct_area_adequada <- round(100 * (total$area_total_km2 - total[["Baixo"]] -
+                                              total[["Sem valor"]]) / total$area_total_km2, 1)
+    tab <- rbind(tab, total)
+
+    write.csv(tab, file.path(PASTA_TAB, paste0("12B_", h, "_por_estado.csv")), row.names = FALSE)
+    cat("\n", h, ": área (km²) por classe e estado\n", sep = "")
+    print(tab)
+
+    # Mapa: cada célula com habitat, colorida pela classe
+    cores_hab <- c(Baixo = "#2c7bb6", Adequado = "#d7191c", Médio = "#fdae61",
+                   Alto = "#d7191c", `Sem valor` = "grey60")
+    png(file.path(PASTA_FIG, paste0("12B_", h, "_classes.png")), width = 2400, height = 2600, res = 300)
+    terra::plot(faixa_br, col = "grey88", legend = FALSE,
+                main = paste0(tools::toTitleCase(h), ": classe na costa vizinha"))
+    terra::lines(contorno, col = "grey35", lwd = 0.4)
+    points(cel$x, cel$y, pch = 15, cex = 0.35 + 0.6 * sqrt(cel$area_km2 / max(cel$area_km2)),
+           col = cores_hab[cel$classe])
+    terra::add_legend("topright", legend = niveis, pch = 15, col = cores_hab[niveis],
+                      bty = "n", cex = 0.8, inset = 0.02)
+    dev.off()
+
+    resumo_hab[[h]] <- tab[tab$uf == "BRASIL", ]
+  }
+
+  resumo_hab <- cbind(habitat = names(resumo_hab), do.call(rbind, resumo_hab))
+  write.csv(resumo_hab, file.path(PASTA_TAB, "12B_resumo_habitats.csv"), row.names = FALSE)
+}
+
+
+# ==============================================================================
+# MÓDULO 13 – MUDANÇAS CLIMÁTICAS
+# ==============================================================================
+
+# O modelo calibrado no presente (Módulo 7) é projetado nas camadas futuras do
+# Bio-ORACLE v3, sem novo ajuste.
+# Premissas, para escrever nas limitações:
+#   - o nicho da espécie não muda (conservação de nicho);
+#   - as infraestruturas continuam onde estão;
+#   - as projeções de clorofila são as mais incertas;
+#   - cenário não é previsão: mostra o que acontece SE as emissões seguirem aquele caminho.
+
+if (RODAR_CLIMA) {
+
+  etapa("MÓDULO 13 – MUDANÇAS CLIMÁTICAS")
+
+  # Limite sul: latitude mais ao sul com costa adequada (dentro da área projetada)
+  limite_sul <- function(binario_r) {
+    d <- as.data.frame(binario_r, xy = TRUE, na.rm = TRUE)
+    d <- d[d[[3]] == 1, ]
+    if (nrow(d) == 0) NA_real_ else round(min(d$y), 2)
+  }
+  pct <- function(r) round(100 * terra::global(r, "mean", na.rm = TRUE)[1, 1], 1)
+
+  linhas_clima <- list(data.frame(
+    cenario = "presente", decada = "2000–2020",
+    pct_costa_adequada = pct(binario), adeq_media = round(terra::global(adeq, "mean", na.rm = TRUE)[1, 1], 3),
+    mudanca_media = 0, pct_ganho = 0, pct_perda = 0,
+    limite_sul_lat = limite_sul(binario), pct_extrapolacao = pct(mess < 0)
+  ))
+  mapas_futuro <- list()
+  mapas_mudanca <- list()
+  mapas_futuro_oc <- list()
+  mapas_mudanca_oc <- list()
+  infra_futuro <- list()
+
+  if (exists("tabela_infra")) {
+    v_infra_buf <- terra::buffer(terra::vect(tabela_infra[, c("lon", "lat")], geom = c("lon", "lat"),
+                                             crs = "EPSG:4326"), BUFFER_INFRA_KM * 1000)
+  }
+
+  for (cen in CENARIOS_CLIMA) for (dec in DECADAS_CLIMA) {
+    rotulo_fut <- paste0(cen, "_", dec)
+    pasta_fut <- file.path(PASTA_AMB, "futuro", rotulo_fut)
+    if (BAIXAR_BIOORACLE) {
+      tryCatch(baixar_biooracle(lat_lim, pasta_fut, cenario = cen, decada = dec),
+               error = function(e) warning("Download do futuro falhou (", rotulo_fut, "): ",
+                                           conditionMessage(e)))
+    }
+    # Só a costa brasileira: carregar o planeta inteiro aqui estourava a memória
+    # (o R foi encerrado por falta de RAM no computador do laboratório).
+    # A faixa brasileira (com a folga de BUFFER_BRASIL_KM) passa um pouco da caixa
+    # do oceano a oeste: carrega a união das duas, para os recortes baterem.
+    caixa_fut <- if (MAPA_OCEANO) terra::union(terra::ext(EXTENSAO_OCEANO), terra::ext(faixa_br)) else terra::ext(faixa_br)
+    env_fut <- tryCatch(preparar_camadas(pasta_fut, lat_lim, extensao = caixa_fut),
+                        error = function(e) {
+      warning(rotulo_fut, ": ", conditionMessage(e), " – cenário pulado.")
+      NULL
+    })
+    if (is.null(env_fut)) next
+    if (PREENCHER_BAIAS) {
+      env_fut <- preencher_baias(env_fut, ARQ_GSHHG_TERRA, ARQ_GSHHG_LAGOS,
+                                 caixa_lagos = terra::ext(EXTENSAO_OCEANO), limiar = LIMIAR_AGUA,
+                                 dist_max_km = DIST_MAX_BAIAS_KM,
+                                 lagos_manter = if (INCLUIR_LAGOS_FECHADOS) NULL else LAGOAS_LIGADAS_AO_MAR,
+                                 excluir = ARQ_AGUA_EXCLUIDA)
+    }
+
+    versao_fut <- as.character(file.mtime(file.path(pasta_fut,
+                                                    paste0(names(CAMADAS_BIOORACLE), ".tif"))))
+    env_fut_br <- terra::mask(terra::crop(env_fut[[VARIAVEIS]], faixa_br), faixa_br)
+
+    adeq_fut <- projetar(global, env_fut_br, paste0("Futuro_", rotulo_fut),
+                         depende_tambem = versao_fut)$adeq
+    mess_fut <- salvo(paste0("13_mess_", rotulo_fut),
+                      depende_de = list(global$assinatura, versao_fut, env_fut_br),
+                      calcular_mess(env_fut_br, global$dados@data.env.var))
+
+    binario_fut <- adeq_fut >= limiar_global
+    mudanca <- adeq_fut - adeq
+    names(mudanca) <- "mudanca"
+
+    terra::writeRaster(adeq_fut, file.path(PASTA_RASTER, paste0("adequabilidade_", rotulo_fut, ".tif")),
+                       overwrite = TRUE)
+    terra::writeRaster(mudanca, file.path(PASTA_RASTER, paste0("mudanca_", rotulo_fut, ".tif")),
+                       overwrite = TRUE)
+
+    linhas_clima[[rotulo_fut]] <- data.frame(
+      cenario = cen, decada = paste0(dec, "–", dec + 10),
+      pct_costa_adequada = pct(binario_fut),
+      adeq_media = round(terra::global(adeq_fut, "mean", na.rm = TRUE)[1, 1], 3),
+      mudanca_media = round(terra::global(mudanca, "mean", na.rm = TRUE)[1, 1], 3),
+      pct_ganho = pct(binario_fut & !binario),
+      pct_perda = pct(!binario_fut & binario),
+      limite_sul_lat = limite_sul(binario_fut),
+      pct_extrapolacao = pct(mess_fut < 0)
+    )
+    mapas_futuro[[rotulo_fut]] <- adeq_fut
+    mapas_mudanca[[rotulo_fut]] <- mudanca
+
+    # Oceano inteiro (só para os mapas)
+    if (MAPA_OCEANO) {
+      adeq_fut_oc <- projetar(global, terra::crop(env_fut[[VARIAVEIS]], terra::ext(EXTENSAO_OCEANO)),
+                              paste0("FuturoOceano_", rotulo_fut),
+                              depende_tambem = versao_fut, nucleos = NUCLEOS_OCEANO)$adeq
+      mudanca_oc <- adeq_fut_oc - adeq_oceano
+      names(mudanca_oc) <- "mudanca"
+      terra::writeRaster(adeq_fut_oc, file.path(PASTA_RASTER, paste0("adequabilidade_oceano_", rotulo_fut, ".tif")),
+                         overwrite = TRUE)
+      terra::writeRaster(mudanca_oc, file.path(PASTA_RASTER, paste0("mudanca_oceano_", rotulo_fut, ".tif")),
+                         overwrite = TRUE)
+      mapas_futuro_oc[[rotulo_fut]] <- adeq_fut_oc
+      mapas_mudanca_oc[[rotulo_fut]] <- mudanca_oc
+    }
+
+    # Infraestruturas em costa adequada: hoje × futuro (só as que têm faixa
+    # costeira num raio de BUFFER_INFRA_KM, como no Módulo 12)
+    if (exists("v_infra_buf")) {
+      a_fut <- terra::extract(adeq_fut, v_infra_buf, fun = max, na.rm = TRUE)[, 2]
+      a_fut[!is.finite(a_fut)] <- NA
+      com_valor <- !is.na(tabela_infra$adeq_costa) & !is.na(a_fut)
+      infra_futuro[[rotulo_fut]] <- data.frame(
+        cenario = cen, decada = dec,
+        tipo = names(table(tabela_infra$tipo[com_valor])),
+        adequadas_hoje = as.vector(tapply(tabela_infra$adeq_costa[com_valor] >= limiar_global,
+                                          tabela_infra$tipo[com_valor], sum)),
+        adequadas_futuro = as.vector(tapply(a_fut[com_valor] >= limiar_global,
+                                            tabela_infra$tipo[com_valor], sum)),
+        total_com_valor = as.vector(table(tabela_infra$tipo[com_valor]))
+      )
+    }
+
+    # Libera a memória antes do próximo cenário
+    rm(env_fut, env_fut_br, mess_fut)
+    invisible(gc())
+  }
+
+  tabela_clima <- do.call(rbind, unname(linhas_clima))
+  write.csv(tabela_clima, file.path(PASTA_TAB, "13_clima_resumo.csv"), row.names = FALSE)
+  print(tabela_clima)
+  if (length(infra_futuro) > 0) {
+    tab_infra_fut <- do.call(rbind, unname(infra_futuro))
+    write.csv(tab_infra_fut, file.path(PASTA_TAB, "13_clima_infraestruturas.csv"), row.names = FALSE)
+    print(tab_infra_fut)
+  }
+
+  if (length(mapas_futuro) > 0) {
+    # Figura 1: presente + cada cenário e década
+    n_paineis <- length(mapas_futuro) + 1
+    colunas <- min(3, n_paineis)
+    linhas <- ceiling(n_paineis / colunas)
+    png(file.path(PASTA_FIG, "13_adequabilidade_futuro.png"),
+        width = 1500 * colunas, height = 1600 * linhas, res = 300)
+    par(mfrow = c(linhas, colunas))
+    terra::plot(adeq, col = PALETA_ADEQ, range = c(0, 1), main = "Presente (2000–2020)")
+    terra::lines(contorno, col = "grey35", lwd = 0.3)
+    for (rot in names(mapas_futuro)) {
+      terra::plot(mapas_futuro[[rot]], col = PALETA_ADEQ, range = c(0, 1),
+                  main = gsub("_", " – ", toupper(rot)))
+      terra::lines(contorno, col = "grey35", lwd = 0.3)
+    }
+    dev.off()
+
+    # Figura 2: mudança em relação ao presente (azul = perde, vermelho = ganha)
+    lim_mud <- max(abs(unlist(lapply(mapas_mudanca, function(m) {
+      terra::global(m, "range", na.rm = TRUE)
+    }))), na.rm = TRUE)
+    colunas <- min(2, length(mapas_mudanca))
+    linhas <- ceiling(length(mapas_mudanca) / colunas)
+    png(file.path(PASTA_FIG, "13_mudanca_adequabilidade.png"),
+        width = 1600 * colunas, height = 1700 * linhas, res = 300)
+    par(mfrow = c(linhas, colunas))
+    for (rot in names(mapas_mudanca)) {
+      terra::plot(mapas_mudanca[[rot]], col = hcl.colors(101, "Blue-Red 3"),
+                  range = c(-lim_mud, lim_mud),
+                  main = paste("Mudança:", gsub("_", " – ", toupper(rot))))
+      terra::lines(contorno, col = "grey35", lwd = 0.3)
+    }
+    dev.off()
+
+    # Mapas finais do clima
+    nomes_fut <- vapply(names(mapas_futuro), rotulo_cenario, character(1))
+    if (MAPA_OCEANO && length(mapas_futuro_oc) == length(mapas_futuro)) {
+      mapas_futuro_fig <- mapas_futuro_oc
+      mapas_mudanca_fig <- mapas_mudanca_oc
+      adeq_presente_fig <- adeq_oceano
+    } else {
+      mapas_futuro_fig <- mapas_futuro
+      mapas_mudanca_fig <- mapas_mudanca
+      adeq_presente_fig <- adeq
+    }
+    mapa_final(c(list("Presente · 2000–2020" = adeq_presente_fig), setNames(mapas_futuro_fig, nomes_fut)),
+               "12_adequabilidade_futuro.png", "Adequabilidade\nambiental", limites = c(0, 1),
+               colunas = 3, largura = 11, altura = 4.3 * ceiling((length(mapas_futuro) + 1) / 3),
+               nota = "Projeção do mesmo ensemble nas camadas futuras do Bio-ORACLE v3 (cenários SSP).")
+    mapa_final(setNames(mapas_mudanca_fig, nomes_fut), "13_mudanca_futuro.png",
+               "Mudança na\nadequabilidade", tipo = "divergente",
+               colunas = 2, largura = 8.5, altura = 4.5 * ceiling(length(mapas_mudanca) / 2),
+               nota = "Futuro − presente. Vermelho: fica mais adequado; azul: menos adequado.")
+
+    # Figura 3: % da costa adequada e limite sul ao longo do tempo
+    tc <- tabela_clima
+    tc$ano <- ifelse(tc$cenario == "presente", 2010, as.numeric(substr(tc$decada, 1, 4)) + 5)
+    png(file.path(PASTA_FIG, "13_clima_tendencias.png"), width = 2800, height = 1300, res = 300)
+    par(mfrow = c(1, 2), mar = c(4, 4.5, 3, 1))
+    cores_cen <- setNames(c("#e08214", "#b2182b", "#2166ac", "#1b7837", "#762a83", "#4d4d4d"),
+                          c(CENARIOS_CLIMA, setdiff(c("ssp119", "ssp126", "ssp245", "ssp370",
+                                                      "ssp460", "ssp585"), CENARIOS_CLIMA))[1:6])
+    for (qual in c("pct_costa_adequada", "limite_sul_lat")) {
+      plot(NA, xlim = range(tc$ano), ylim = range(tc[[qual]], na.rm = TRUE) + c(-1, 1),
+           xlab = "Ano", ylab = c(pct_costa_adequada = "% da costa adequada",
+                                  limite_sul_lat = "Limite sul (latitude)")[[qual]],
+           main = c(pct_costa_adequada = "Costa adequada",
+                    limite_sul_lat = "Limite sul da área adequada")[[qual]])
+      for (cen in CENARIOS_CLIMA) {
+        d <- rbind(tc[tc$cenario == "presente", ], tc[tc$cenario == cen, ])
+        lines(d$ano, d[[qual]], type = "b", pch = 19, col = cores_cen[cen], lwd = 2)
+      }
+      legend("topleft", legend = toupper(CENARIOS_CLIMA), col = cores_cen[CENARIOS_CLIMA],
+             lwd = 2, pch = 19, bty = "n", cex = 0.8)
+    }
+    dev.off()
+  }
+}
+
+
+# ==============================================================================
+# MÓDULO 14 – REGISTRO DA SESSÃO
+# ==============================================================================
+
+etapa("MÓDULO 14 – REGISTRO DA SESSÃO")
+
+parametros <- mget(c("ESPECIE", "SEMENTE", "FATOR_AGREGACAO", "INCERTEZA_MAX_M",
+                     "ANO_MIN", "DIST_AJUSTE_KM", "DIST_FILTRO_KM",
+                     "FAIXA_COSTEIRA_CEL", "LIMIAR_CORRELACAO", "VIF_MAX",
+                     "MODELOS", "N_PA_REP", "N_PA_MIN", "PA_POR_PRESENCA",
+                     "K_BLOCOS", "TAM_BLOCO_GRAUS", "K_BLOCOS_BRASIL",
+                     "TSS_MIN_ENSEMBLE", "DECAIMENTO_KM", "BUFFER_INFRA_KM",
+                     "CENARIOS_CLIMA", "DECADAS_CLIMA", "RAIO_HABITAT_CEL",
+                     "VARIAVEIS"))
+parametros$limiar_tss_usado_global <- global$limiar_tss
+parametros$limiar_presenca_global <- round(limiar_global, 3)
+
+writeLines(
+  c(paste(names(parametros), sapply(parametros, paste, collapse = ", "), sep = " = "),
+    "", capture.output(sessionInfo())),
+  file.path(PASTA_RES, "parametros_e_sessao.txt")
+)
+
+cat("\nPronto. Resultados em:", PASTA_RES, "\n")
