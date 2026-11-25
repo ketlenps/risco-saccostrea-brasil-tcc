@@ -1456,7 +1456,8 @@ salvar_avaliacao <- function(res, prefixo) {
 # Importância das variáveis em cada modelo individual que entrou no ensemble, em boxplots por algoritmo
 # (como na Figura 8 do TCC de referência). A importância de cada modelo é a média das 'var_import'
 # permutações (1 − correlação após permutação); ficam só os modelos escolhidos para o ensemble
-# (TSS de validação ≥ limiar). Grava a tabela de todos os modelos e a figura.
+# (TSS de validação ≥ limiar). Grava a tabela de todos os modelos e a figura (Figura 2 do TCC:
+# painéis fechados e do mesmo tamanho, cinza suave, bigodes tracejados).
 # 'ordem' = variáveis na ordem da importância no ensemble (saída de salvar_importancia_e_curvas).
 salvar_importancia_por_modelo <- function(res, prefixo, ordem) {
   imp <- get_variables_importance(res$modelos)
@@ -1470,28 +1471,35 @@ salvar_importancia_por_modelo <- function(res, prefixo, ordem) {
   if (nrow(usados) == 0) return(invisible(NULL))
   por_modelo <- aggregate(var.imp ~ full.name + algo + expl.var, data = usados, FUN = mean)
 
-  curtos <- c(ar_min = "Ar mín", batimetria = "Bat", ar_max = "Ar máx", sal_min = "Sal mín",
+  curtos <- c(ar_min = "Ar\nmín", batimetria = "Bat", ar_max = "Ar\nmáx", sal_min = "Sal\nmín",
               vel_mean = "Corr", chl_log = "Chl")
   rotulos <- ifelse(ordem %in% names(curtos), curtos[ordem], ordem)
   nomes_algo <- c(GLM = "GLM", GBM = "GBM", RFd = "RFd", MAXNET = "MaxNet")
   algos <- intersect(names(nomes_algo), unique(por_modelo$algo))
-  limite_y <- c(0, max(0.7, max(por_modelo$var.imp) * 1.05))
+  topo <- max(0.7, ceiling(max(por_modelo$var.imp) * 10) / 10)
+  linha <- "grey30"
 
   op <- options(OutDec = ",")
   on.exit(options(op), add = TRUE)
   png(file.path(PASTA_FIG, paste0(prefixo, "_importancia_por_algoritmo.png")),
-      width = 3200, height = 1500, res = 300)
-  par(mfrow = c(1, length(algos)), mar = c(5, 1, 2.5, 0.5), oma = c(0, 4, 0, 0))
+      width = 17.5, height = 6.6, units = "cm", res = 300, pointsize = 7)
+  par(mfrow = c(1, length(algos)), mar = c(3.4, 2.8, 1.8, 0.8), oma = c(0, 1.4, 0, 0),
+      mgp = c(2, 0.45, 0), tcl = -0.25, col.axis = "grey15", fg = linha, cex = 1, lwd = 0.6)
   for (i in seq_along(algos)) {
     d <- por_modelo[por_modelo$algo == algos[i], ]
     d$expl.var <- factor(d$expl.var, levels = ordem)
-    boxplot(var.imp ~ expl.var, data = d, col = "grey85", ylim = limite_y, names = rotulos,
-            xlab = "", ylab = "", las = 2, yaxt = "n",
-            main = paste0("(", letters[i], ") ", nomes_algo[algos[i]],
-                          " (n = ", length(unique(d$full.name)), ")"))
-    axis(2, las = 1, labels = (i == 1))
+    boxplot(var.imp ~ d$expl.var, data = d, ylim = c(-0.02, topo), boxwex = 0.55,
+            col = "grey89", border = linha, medcol = "grey10", medlwd = 1.3, boxlwd = 0.6,
+            whisklty = 2, whisklwd = 0.6, staplelwd = 0.6, outpch = 1, outcex = 0.5, outlwd = 0.6,
+            xaxt = "n", yaxt = "n", xlab = "", ylab = "", frame.plot = TRUE)
+    axis(2, at = seq(0, topo, 0.1), las = 1, cex.axis = 0.93, lwd = 0.6)
+    axis(1, at = seq_along(ordem), labels = FALSE, lwd = 0.6)
+    mtext(rotulos, side = 1, at = seq_along(ordem), line = 0.35, padj = 1, cex = 0.83, col = "grey15")
+    box(lwd = 0.6)
+    title(main = paste0("(", letters[i], ") ", nomes_algo[algos[i]],
+                        " (n = ", length(unique(d$full.name)), ")"), cex.main = 1.07, line = 0.5)
   }
-  mtext("Importância (1 − correlação após permutação)", side = 2, outer = TRUE, line = 2.5)
+  mtext("Importância", side = 2, outer = TRUE, line = 0.2, adj = 0.58, cex = 1)
   dev.off()
   invisible(por_modelo)
 }
@@ -1802,7 +1810,7 @@ env_sel <- env_faixa[[VARIAVEIS]]
 
 ## 9. Módulo 7 – Modelo ambiental global
 
-Modelo de adequabilidade calibrado com os registros do mundo todo: três conjuntos de pseudoausências, validação cruzada em cinco blocos espaciais, quatro algoritmos (GLM, GBM, Random Forest balanceado e MaxNet) e *ensemble* pela média ponderada pelo TSS. O limiar de presença (máximo TSS) é 0,542. A importância de cada variável é medida por permutação no *ensemble* e em cada modelo que entrou nele, e a figura 07_global_importancia_por_algoritmo.png mostra essa importância em boxplots, um painel por algoritmo.
+Modelo de adequabilidade calibrado com os registros do mundo todo: três conjuntos de pseudoausências, validação cruzada em cinco blocos espaciais, quatro algoritmos (GLM, GBM, Random Forest balanceado e MaxNet) e *ensemble* pela média ponderada pelo TSS. O limiar de presença (máximo TSS) é 0,542. A importância de cada variável é medida por permutação no *ensemble* e em cada modelo que entrou nele, e a figura 07_global_importancia_por_algoritmo.png mostra essa importância em boxplots, um painel por algoritmo (Figura 2 do TCC).
 
 ```{r}
 etapa("MÓDULO 7 – MODELO AMBIENTAL GLOBAL")
