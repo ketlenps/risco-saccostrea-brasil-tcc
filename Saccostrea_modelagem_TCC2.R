@@ -1507,7 +1507,7 @@ salvar_importancia_por_modelo <- function(res, prefixo, ordem) {
   curtos <- c(ar_min = "Ar\nmín", batimetria = "Bat", ar_max = "Ar\nmáx", sal_min = "Sal\nmín",
               vel_mean = "Corr", chl_log = "Chl")
   rotulos <- ifelse(ordem %in% names(curtos), curtos[ordem], ordem)
-  nomes_algo <- c(GLM = "GLM", GBM = "GBM", RFd = "RFd", MAXNET = "MaxNet")
+  nomes_algo <- c(GLM = "GLM", GBM = "GBM", RFd = "Random Forest", MAXNET = "MaxNet")
   algos <- intersect(names(nomes_algo), unique(por_modelo$algo))
   topo <- max(0.7, ceiling(max(por_modelo$var.imp) * 10) / 10)
   linha <- "grey30"
