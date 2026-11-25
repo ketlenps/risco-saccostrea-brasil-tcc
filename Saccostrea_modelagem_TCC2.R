@@ -1486,6 +1486,49 @@ salvar_avaliacao <- function(res, prefixo) {
   resumo
 }
 
+# Importância das variáveis em cada modelo individual que entrou no ensemble, em boxplots por algoritmo
+# (como na Figura 8 do TCC de referência). A importância de cada modelo é a média das 'var_import'
+# permutações (1 − correlação após permutação); ficam só os modelos escolhidos para o ensemble
+# (TSS de validação ≥ limiar). Grava a tabela de todos os modelos e a figura.
+# 'ordem' = variáveis na ordem da importância no ensemble (saída de salvar_importancia_e_curvas).
+salvar_importancia_por_modelo <- function(res, prefixo, ordem) {
+  imp <- get_variables_importance(res$modelos)
+  imp$no_ensemble <- imp$full.name %in% get_kept_models(res$ensemble)
+  tss <- res$aval[res$aval$metric.eval == "TSS", c("full.name", "validation")]
+  imp <- merge(imp, tss, by = "full.name", all.x = TRUE)
+  write.csv(imp, file.path(PASTA_TAB, paste0(prefixo, "_importancia_por_modelo.csv")),
+            row.names = FALSE)
+
+  usados <- imp[imp$no_ensemble, ]
+  if (nrow(usados) == 0) return(invisible(NULL))
+  por_modelo <- aggregate(var.imp ~ full.name + algo + expl.var, data = usados, FUN = mean)
+
+  curtos <- c(ar_min = "Ar mín", batimetria = "Bat", ar_max = "Ar máx", sal_min = "Sal mín",
+              vel_mean = "Corr", chl_log = "Chl")
+  rotulos <- ifelse(ordem %in% names(curtos), curtos[ordem], ordem)
+  nomes_algo <- c(GLM = "GLM", GBM = "GBM", RFd = "RFd", MAXNET = "MaxNet")
+  algos <- intersect(names(nomes_algo), unique(por_modelo$algo))
+  limite_y <- c(0, max(0.7, max(por_modelo$var.imp) * 1.05))
+
+  op <- options(OutDec = ",")
+  on.exit(options(op), add = TRUE)
+  png(file.path(PASTA_FIG, paste0(prefixo, "_importancia_por_algoritmo.png")),
+      width = 3200, height = 1500, res = 300)
+  par(mfrow = c(1, length(algos)), mar = c(5, 1, 2.5, 0.5), oma = c(0, 4, 0, 0))
+  for (i in seq_along(algos)) {
+    d <- por_modelo[por_modelo$algo == algos[i], ]
+    d$expl.var <- factor(d$expl.var, levels = ordem)
+    boxplot(var.imp ~ expl.var, data = d, col = "grey85", ylim = limite_y, names = rotulos,
+            xlab = "", ylab = "", las = 2, yaxt = "n",
+            main = paste0("(", letters[i], ") ", nomes_algo[algos[i]],
+                          " (n = ", length(unique(d$full.name)), ")"))
+    axis(2, las = 1, labels = (i == 1))
+  }
+  mtext("Importância (1 − correlação após permutação)", side = 2, outer = TRUE, line = 2.5)
+  dev.off()
+  invisible(por_modelo)
+}
+
 # Importância das variáveis e curvas de resposta do ensemble EMwmean.
 salvar_importancia_e_curvas <- function(res, prefixo) {
   imp <- get_variables_importance(res$ensemble)
@@ -1811,6 +1854,8 @@ print(resumo_global)
 
 importancia_global <- salvar_importancia_e_curvas(global, "07_global")
 print(round(importancia_global, 3))
+# Boxplots da importância nos modelos de cada algoritmo que entraram no ensemble (Figura 2 do TCC)
+importancia_por_modelo <- salvar_importancia_por_modelo(global, "07_global", names(importancia_global))
 
 
 # ==============================================================================

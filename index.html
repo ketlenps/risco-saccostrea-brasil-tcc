@@ -3011,36 +3011,79 @@ desenhar os mapas.</p>
 <span id="cb14-201"><a href="#cb14-201" tabindex="-1"></a>  resumo</span>
 <span id="cb14-202"><a href="#cb14-202" tabindex="-1"></a>}</span>
 <span id="cb14-203"><a href="#cb14-203" tabindex="-1"></a></span>
-<span id="cb14-204"><a href="#cb14-204" tabindex="-1"></a><span class="co"># Importância das variáveis e curvas de resposta do ensemble EMwmean.</span></span>
-<span id="cb14-205"><a href="#cb14-205" tabindex="-1"></a>salvar_importancia_e_curvas <span class="ot">&lt;-</span> <span class="cf">function</span>(res, prefixo) {</span>
-<span id="cb14-206"><a href="#cb14-206" tabindex="-1"></a>  imp <span class="ot">&lt;-</span> <span class="fu">get_variables_importance</span>(res<span class="sc">$</span>ensemble)</span>
-<span id="cb14-207"><a href="#cb14-207" tabindex="-1"></a>  imp <span class="ot">&lt;-</span> imp[<span class="fu">grepl</span>(<span class="st">&quot;EMwmean&quot;</span>, imp<span class="sc">$</span>full.name), ]</span>
-<span id="cb14-208"><a href="#cb14-208" tabindex="-1"></a>  imp_media <span class="ot">&lt;-</span> <span class="fu">sort</span>(<span class="fu">tapply</span>(imp<span class="sc">$</span>var.imp, imp<span class="sc">$</span>expl.var, mean), <span class="at">decreasing =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb14-209"><a href="#cb14-209" tabindex="-1"></a>  <span class="fu">write.csv</span>(<span class="fu">data.frame</span>(<span class="at">variavel =</span> <span class="fu">names</span>(imp_media), <span class="at">importancia =</span> <span class="fu">round</span>(imp_media, <span class="dv">3</span>)),</span>
-<span id="cb14-210"><a href="#cb14-210" tabindex="-1"></a>            <span class="fu">file.path</span>(PASTA_TAB, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_importancia_variaveis.csv&quot;</span>)),</span>
-<span id="cb14-211"><a href="#cb14-211" tabindex="-1"></a>            <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb14-212"><a href="#cb14-212" tabindex="-1"></a></span>
-<span id="cb14-213"><a href="#cb14-213" tabindex="-1"></a>  <span class="fu">png</span>(<span class="fu">file.path</span>(PASTA_FIG, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_importancia_variaveis.png&quot;</span>)),</span>
-<span id="cb14-214"><a href="#cb14-214" tabindex="-1"></a>      <span class="at">width =</span> <span class="dv">2000</span>, <span class="at">height =</span> <span class="dv">1600</span>, <span class="at">res =</span> <span class="dv">300</span>)</span>
-<span id="cb14-215"><a href="#cb14-215" tabindex="-1"></a>  <span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">4</span>, <span class="dv">7</span>, <span class="dv">3</span>, <span class="dv">1</span>))</span>
-<span id="cb14-216"><a href="#cb14-216" tabindex="-1"></a>  <span class="fu">barplot</span>(<span class="fu">rev</span>(imp_media), <span class="at">horiz =</span> <span class="cn">TRUE</span>, <span class="at">las =</span> <span class="dv">1</span>, <span class="at">col =</span> <span class="st">&quot;steelblue&quot;</span>,</span>
-<span id="cb14-217"><a href="#cb14-217" tabindex="-1"></a>          <span class="at">xlab =</span> <span class="st">&quot;Importância (1 − correlação após permutação)&quot;</span>,</span>
-<span id="cb14-218"><a href="#cb14-218" tabindex="-1"></a>          <span class="at">main =</span> <span class="st">&quot;Importância das variáveis – ensemble&quot;</span>)</span>
-<span id="cb14-219"><a href="#cb14-219" tabindex="-1"></a>  <span class="fu">dev.off</span>()</span>
+<span id="cb14-204"><a href="#cb14-204" tabindex="-1"></a><span class="co"># Importância das variáveis em cada modelo individual que entrou no ensemble, em boxplots por algoritmo</span></span>
+<span id="cb14-205"><a href="#cb14-205" tabindex="-1"></a><span class="co"># (como na Figura 8 do TCC de referência). A importância de cada modelo é a média das &#39;var_import&#39;</span></span>
+<span id="cb14-206"><a href="#cb14-206" tabindex="-1"></a><span class="co"># permutações (1 − correlação após permutação); ficam só os modelos escolhidos para o ensemble</span></span>
+<span id="cb14-207"><a href="#cb14-207" tabindex="-1"></a><span class="co"># (TSS de validação ≥ limiar). Grava a tabela de todos os modelos e a figura.</span></span>
+<span id="cb14-208"><a href="#cb14-208" tabindex="-1"></a><span class="co"># &#39;ordem&#39; = variáveis na ordem da importância no ensemble (saída de salvar_importancia_e_curvas).</span></span>
+<span id="cb14-209"><a href="#cb14-209" tabindex="-1"></a>salvar_importancia_por_modelo <span class="ot">&lt;-</span> <span class="cf">function</span>(res, prefixo, ordem) {</span>
+<span id="cb14-210"><a href="#cb14-210" tabindex="-1"></a>  imp <span class="ot">&lt;-</span> <span class="fu">get_variables_importance</span>(res<span class="sc">$</span>modelos)</span>
+<span id="cb14-211"><a href="#cb14-211" tabindex="-1"></a>  imp<span class="sc">$</span>no_ensemble <span class="ot">&lt;-</span> imp<span class="sc">$</span>full.name <span class="sc">%in%</span> <span class="fu">get_kept_models</span>(res<span class="sc">$</span>ensemble)</span>
+<span id="cb14-212"><a href="#cb14-212" tabindex="-1"></a>  tss <span class="ot">&lt;-</span> res<span class="sc">$</span>aval[res<span class="sc">$</span>aval<span class="sc">$</span>metric.eval <span class="sc">==</span> <span class="st">&quot;TSS&quot;</span>, <span class="fu">c</span>(<span class="st">&quot;full.name&quot;</span>, <span class="st">&quot;validation&quot;</span>)]</span>
+<span id="cb14-213"><a href="#cb14-213" tabindex="-1"></a>  imp <span class="ot">&lt;-</span> <span class="fu">merge</span>(imp, tss, <span class="at">by =</span> <span class="st">&quot;full.name&quot;</span>, <span class="at">all.x =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-214"><a href="#cb14-214" tabindex="-1"></a>  <span class="fu">write.csv</span>(imp, <span class="fu">file.path</span>(PASTA_TAB, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_importancia_por_modelo.csv&quot;</span>)),</span>
+<span id="cb14-215"><a href="#cb14-215" tabindex="-1"></a>            <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb14-216"><a href="#cb14-216" tabindex="-1"></a></span>
+<span id="cb14-217"><a href="#cb14-217" tabindex="-1"></a>  usados <span class="ot">&lt;-</span> imp[imp<span class="sc">$</span>no_ensemble, ]</span>
+<span id="cb14-218"><a href="#cb14-218" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">nrow</span>(usados) <span class="sc">==</span> <span class="dv">0</span>) <span class="fu">return</span>(<span class="fu">invisible</span>(<span class="cn">NULL</span>))</span>
+<span id="cb14-219"><a href="#cb14-219" tabindex="-1"></a>  por_modelo <span class="ot">&lt;-</span> <span class="fu">aggregate</span>(var.imp <span class="sc">~</span> full.name <span class="sc">+</span> algo <span class="sc">+</span> expl.var, <span class="at">data =</span> usados, <span class="at">FUN =</span> mean)</span>
 <span id="cb14-220"><a href="#cb14-220" tabindex="-1"></a></span>
-<span id="cb14-221"><a href="#cb14-221" tabindex="-1"></a>  nome_em <span class="ot">&lt;-</span> <span class="fu">grep</span>(<span class="st">&quot;EMwmean&quot;</span>, <span class="fu">get_built_models</span>(res<span class="sc">$</span>ensemble), <span class="at">value =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span>]</span>
-<span id="cb14-222"><a href="#cb14-222" tabindex="-1"></a>  curvas <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(</span>
-<span id="cb14-223"><a href="#cb14-223" tabindex="-1"></a>    <span class="fu">bm_PlotResponseCurves</span>(<span class="at">bm.out =</span> res<span class="sc">$</span>ensemble, <span class="at">models.chosen =</span> nome_em,</span>
-<span id="cb14-224"><a href="#cb14-224" tabindex="-1"></a>                          <span class="at">fixed.var =</span> <span class="st">&quot;median&quot;</span>, <span class="at">do.plot =</span> <span class="cn">FALSE</span>),</span>
-<span id="cb14-225"><a href="#cb14-225" tabindex="-1"></a>    <span class="at">error =</span> <span class="cf">function</span>(e) <span class="cn">NULL</span></span>
-<span id="cb14-226"><a href="#cb14-226" tabindex="-1"></a>  )</span>
-<span id="cb14-227"><a href="#cb14-227" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(curvas) <span class="sc">&amp;&amp;</span> <span class="fu">requireNamespace</span>(<span class="st">&quot;ggplot2&quot;</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>)) {</span>
-<span id="cb14-228"><a href="#cb14-228" tabindex="-1"></a>    ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(PASTA_FIG, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_curvas_resposta.png&quot;</span>)),</span>
-<span id="cb14-229"><a href="#cb14-229" tabindex="-1"></a>                    curvas<span class="sc">$</span>plot, <span class="at">width =</span> <span class="dv">8</span>, <span class="at">height =</span> <span class="dv">6</span>, <span class="at">dpi =</span> <span class="dv">300</span>)</span>
-<span id="cb14-230"><a href="#cb14-230" tabindex="-1"></a>  }</span>
-<span id="cb14-231"><a href="#cb14-231" tabindex="-1"></a></span>
-<span id="cb14-232"><a href="#cb14-232" tabindex="-1"></a>  imp_media</span>
-<span id="cb14-233"><a href="#cb14-233" tabindex="-1"></a>}</span></code></pre></div>
+<span id="cb14-221"><a href="#cb14-221" tabindex="-1"></a>  curtos <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">ar_min =</span> <span class="st">&quot;Ar mín&quot;</span>, <span class="at">batimetria =</span> <span class="st">&quot;Bat&quot;</span>, <span class="at">ar_max =</span> <span class="st">&quot;Ar máx&quot;</span>, <span class="at">sal_min =</span> <span class="st">&quot;Sal mín&quot;</span>,</span>
+<span id="cb14-222"><a href="#cb14-222" tabindex="-1"></a>              <span class="at">vel_mean =</span> <span class="st">&quot;Corr&quot;</span>, <span class="at">chl_log =</span> <span class="st">&quot;Chl&quot;</span>)</span>
+<span id="cb14-223"><a href="#cb14-223" tabindex="-1"></a>  rotulos <span class="ot">&lt;-</span> <span class="fu">ifelse</span>(ordem <span class="sc">%in%</span> <span class="fu">names</span>(curtos), curtos[ordem], ordem)</span>
+<span id="cb14-224"><a href="#cb14-224" tabindex="-1"></a>  nomes_algo <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">GLM =</span> <span class="st">&quot;GLM&quot;</span>, <span class="at">GBM =</span> <span class="st">&quot;GBM&quot;</span>, <span class="at">RFd =</span> <span class="st">&quot;RFd&quot;</span>, <span class="at">MAXNET =</span> <span class="st">&quot;MaxNet&quot;</span>)</span>
+<span id="cb14-225"><a href="#cb14-225" tabindex="-1"></a>  algos <span class="ot">&lt;-</span> <span class="fu">intersect</span>(<span class="fu">names</span>(nomes_algo), <span class="fu">unique</span>(por_modelo<span class="sc">$</span>algo))</span>
+<span id="cb14-226"><a href="#cb14-226" tabindex="-1"></a>  limite_y <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="fu">max</span>(<span class="fl">0.7</span>, <span class="fu">max</span>(por_modelo<span class="sc">$</span>var.imp) <span class="sc">*</span> <span class="fl">1.05</span>))</span>
+<span id="cb14-227"><a href="#cb14-227" tabindex="-1"></a></span>
+<span id="cb14-228"><a href="#cb14-228" tabindex="-1"></a>  op <span class="ot">&lt;-</span> <span class="fu">options</span>(<span class="at">OutDec =</span> <span class="st">&quot;,&quot;</span>)</span>
+<span id="cb14-229"><a href="#cb14-229" tabindex="-1"></a>  <span class="fu">on.exit</span>(<span class="fu">options</span>(op), <span class="at">add =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-230"><a href="#cb14-230" tabindex="-1"></a>  <span class="fu">png</span>(<span class="fu">file.path</span>(PASTA_FIG, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_importancia_por_algoritmo.png&quot;</span>)),</span>
+<span id="cb14-231"><a href="#cb14-231" tabindex="-1"></a>      <span class="at">width =</span> <span class="dv">3200</span>, <span class="at">height =</span> <span class="dv">1500</span>, <span class="at">res =</span> <span class="dv">300</span>)</span>
+<span id="cb14-232"><a href="#cb14-232" tabindex="-1"></a>  <span class="fu">par</span>(<span class="at">mfrow =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="fu">length</span>(algos)), <span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">5</span>, <span class="dv">1</span>, <span class="fl">2.5</span>, <span class="fl">0.5</span>), <span class="at">oma =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">4</span>, <span class="dv">0</span>, <span class="dv">0</span>))</span>
+<span id="cb14-233"><a href="#cb14-233" tabindex="-1"></a>  <span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_along</span>(algos)) {</span>
+<span id="cb14-234"><a href="#cb14-234" tabindex="-1"></a>    d <span class="ot">&lt;-</span> por_modelo[por_modelo<span class="sc">$</span>algo <span class="sc">==</span> algos[i], ]</span>
+<span id="cb14-235"><a href="#cb14-235" tabindex="-1"></a>    d<span class="sc">$</span>expl.var <span class="ot">&lt;-</span> <span class="fu">factor</span>(d<span class="sc">$</span>expl.var, <span class="at">levels =</span> ordem)</span>
+<span id="cb14-236"><a href="#cb14-236" tabindex="-1"></a>    <span class="fu">boxplot</span>(var.imp <span class="sc">~</span> expl.var, <span class="at">data =</span> d, <span class="at">col =</span> <span class="st">&quot;grey85&quot;</span>, <span class="at">ylim =</span> limite_y, <span class="at">names =</span> rotulos,</span>
+<span id="cb14-237"><a href="#cb14-237" tabindex="-1"></a>            <span class="at">xlab =</span> <span class="st">&quot;&quot;</span>, <span class="at">ylab =</span> <span class="st">&quot;&quot;</span>, <span class="at">las =</span> <span class="dv">2</span>, <span class="at">yaxt =</span> <span class="st">&quot;n&quot;</span>,</span>
+<span id="cb14-238"><a href="#cb14-238" tabindex="-1"></a>            <span class="at">main =</span> <span class="fu">paste0</span>(<span class="st">&quot;(&quot;</span>, letters[i], <span class="st">&quot;) &quot;</span>, nomes_algo[algos[i]],</span>
+<span id="cb14-239"><a href="#cb14-239" tabindex="-1"></a>                          <span class="st">&quot; (n = &quot;</span>, <span class="fu">length</span>(<span class="fu">unique</span>(d<span class="sc">$</span>full.name)), <span class="st">&quot;)&quot;</span>))</span>
+<span id="cb14-240"><a href="#cb14-240" tabindex="-1"></a>    <span class="fu">axis</span>(<span class="dv">2</span>, <span class="at">las =</span> <span class="dv">1</span>, <span class="at">labels =</span> (i <span class="sc">==</span> <span class="dv">1</span>))</span>
+<span id="cb14-241"><a href="#cb14-241" tabindex="-1"></a>  }</span>
+<span id="cb14-242"><a href="#cb14-242" tabindex="-1"></a>  <span class="fu">mtext</span>(<span class="st">&quot;Importância (1 − correlação após permutação)&quot;</span>, <span class="at">side =</span> <span class="dv">2</span>, <span class="at">outer =</span> <span class="cn">TRUE</span>, <span class="at">line =</span> <span class="fl">2.5</span>)</span>
+<span id="cb14-243"><a href="#cb14-243" tabindex="-1"></a>  <span class="fu">dev.off</span>()</span>
+<span id="cb14-244"><a href="#cb14-244" tabindex="-1"></a>  <span class="fu">invisible</span>(por_modelo)</span>
+<span id="cb14-245"><a href="#cb14-245" tabindex="-1"></a>}</span>
+<span id="cb14-246"><a href="#cb14-246" tabindex="-1"></a></span>
+<span id="cb14-247"><a href="#cb14-247" tabindex="-1"></a><span class="co"># Importância das variáveis e curvas de resposta do ensemble EMwmean.</span></span>
+<span id="cb14-248"><a href="#cb14-248" tabindex="-1"></a>salvar_importancia_e_curvas <span class="ot">&lt;-</span> <span class="cf">function</span>(res, prefixo) {</span>
+<span id="cb14-249"><a href="#cb14-249" tabindex="-1"></a>  imp <span class="ot">&lt;-</span> <span class="fu">get_variables_importance</span>(res<span class="sc">$</span>ensemble)</span>
+<span id="cb14-250"><a href="#cb14-250" tabindex="-1"></a>  imp <span class="ot">&lt;-</span> imp[<span class="fu">grepl</span>(<span class="st">&quot;EMwmean&quot;</span>, imp<span class="sc">$</span>full.name), ]</span>
+<span id="cb14-251"><a href="#cb14-251" tabindex="-1"></a>  imp_media <span class="ot">&lt;-</span> <span class="fu">sort</span>(<span class="fu">tapply</span>(imp<span class="sc">$</span>var.imp, imp<span class="sc">$</span>expl.var, mean), <span class="at">decreasing =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-252"><a href="#cb14-252" tabindex="-1"></a>  <span class="fu">write.csv</span>(<span class="fu">data.frame</span>(<span class="at">variavel =</span> <span class="fu">names</span>(imp_media), <span class="at">importancia =</span> <span class="fu">round</span>(imp_media, <span class="dv">3</span>)),</span>
+<span id="cb14-253"><a href="#cb14-253" tabindex="-1"></a>            <span class="fu">file.path</span>(PASTA_TAB, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_importancia_variaveis.csv&quot;</span>)),</span>
+<span id="cb14-254"><a href="#cb14-254" tabindex="-1"></a>            <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb14-255"><a href="#cb14-255" tabindex="-1"></a></span>
+<span id="cb14-256"><a href="#cb14-256" tabindex="-1"></a>  <span class="fu">png</span>(<span class="fu">file.path</span>(PASTA_FIG, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_importancia_variaveis.png&quot;</span>)),</span>
+<span id="cb14-257"><a href="#cb14-257" tabindex="-1"></a>      <span class="at">width =</span> <span class="dv">2000</span>, <span class="at">height =</span> <span class="dv">1600</span>, <span class="at">res =</span> <span class="dv">300</span>)</span>
+<span id="cb14-258"><a href="#cb14-258" tabindex="-1"></a>  <span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">4</span>, <span class="dv">7</span>, <span class="dv">3</span>, <span class="dv">1</span>))</span>
+<span id="cb14-259"><a href="#cb14-259" tabindex="-1"></a>  <span class="fu">barplot</span>(<span class="fu">rev</span>(imp_media), <span class="at">horiz =</span> <span class="cn">TRUE</span>, <span class="at">las =</span> <span class="dv">1</span>, <span class="at">col =</span> <span class="st">&quot;steelblue&quot;</span>,</span>
+<span id="cb14-260"><a href="#cb14-260" tabindex="-1"></a>          <span class="at">xlab =</span> <span class="st">&quot;Importância (1 − correlação após permutação)&quot;</span>,</span>
+<span id="cb14-261"><a href="#cb14-261" tabindex="-1"></a>          <span class="at">main =</span> <span class="st">&quot;Importância das variáveis – ensemble&quot;</span>)</span>
+<span id="cb14-262"><a href="#cb14-262" tabindex="-1"></a>  <span class="fu">dev.off</span>()</span>
+<span id="cb14-263"><a href="#cb14-263" tabindex="-1"></a></span>
+<span id="cb14-264"><a href="#cb14-264" tabindex="-1"></a>  nome_em <span class="ot">&lt;-</span> <span class="fu">grep</span>(<span class="st">&quot;EMwmean&quot;</span>, <span class="fu">get_built_models</span>(res<span class="sc">$</span>ensemble), <span class="at">value =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span>]</span>
+<span id="cb14-265"><a href="#cb14-265" tabindex="-1"></a>  curvas <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(</span>
+<span id="cb14-266"><a href="#cb14-266" tabindex="-1"></a>    <span class="fu">bm_PlotResponseCurves</span>(<span class="at">bm.out =</span> res<span class="sc">$</span>ensemble, <span class="at">models.chosen =</span> nome_em,</span>
+<span id="cb14-267"><a href="#cb14-267" tabindex="-1"></a>                          <span class="at">fixed.var =</span> <span class="st">&quot;median&quot;</span>, <span class="at">do.plot =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb14-268"><a href="#cb14-268" tabindex="-1"></a>    <span class="at">error =</span> <span class="cf">function</span>(e) <span class="cn">NULL</span></span>
+<span id="cb14-269"><a href="#cb14-269" tabindex="-1"></a>  )</span>
+<span id="cb14-270"><a href="#cb14-270" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(curvas) <span class="sc">&amp;&amp;</span> <span class="fu">requireNamespace</span>(<span class="st">&quot;ggplot2&quot;</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>)) {</span>
+<span id="cb14-271"><a href="#cb14-271" tabindex="-1"></a>    ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(PASTA_FIG, <span class="fu">paste0</span>(prefixo, <span class="st">&quot;_curvas_resposta.png&quot;</span>)),</span>
+<span id="cb14-272"><a href="#cb14-272" tabindex="-1"></a>                    curvas<span class="sc">$</span>plot, <span class="at">width =</span> <span class="dv">8</span>, <span class="at">height =</span> <span class="dv">6</span>, <span class="at">dpi =</span> <span class="dv">300</span>)</span>
+<span id="cb14-273"><a href="#cb14-273" tabindex="-1"></a>  }</span>
+<span id="cb14-274"><a href="#cb14-274" tabindex="-1"></a></span>
+<span id="cb14-275"><a href="#cb14-275" tabindex="-1"></a>  imp_media</span>
+<span id="cb14-276"><a href="#cb14-276" tabindex="-1"></a>}</span></code></pre></div>
 </div>
 </div>
 <div id="módulo-2-registros-de-ocorrência" class="section level2">
@@ -3321,7 +3364,10 @@ corrente.</p>
 três conjuntos de pseudoausências, validação cruzada em cinco blocos
 espaciais, quatro algoritmos (GLM, GBM, Random Forest balanceado e
 MaxNet) e <em>ensemble</em> pela média ponderada pelo TSS. O limiar de
-presença (máximo TSS) é 0,542.</p>
+presença (máximo TSS) é 0,542. A importância de cada variável é medida
+por permutação no <em>ensemble</em> e em cada modelo que entrou nele, e
+a figura 07_global_importancia_por_algoritmo.png mostra essa importância
+em boxplots, um painel por algoritmo.</p>
 <div class="sourceCode" id="cb20"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" tabindex="-1"></a><span class="fu">etapa</span>(<span class="st">&quot;MÓDULO 7 – MODELO AMBIENTAL GLOBAL&quot;</span>)</span>
 <span id="cb20-2"><a href="#cb20-2" tabindex="-1"></a></span>
 <span id="cb20-3"><a href="#cb20-3" tabindex="-1"></a>xy_pres <span class="ot">&lt;-</span> oc_final[, <span class="fu">c</span>(<span class="st">&quot;lon&quot;</span>, <span class="st">&quot;lat&quot;</span>)]</span>
@@ -3343,7 +3389,9 @@ presença (máximo TSS) é 0,542.</p>
 <span id="cb20-19"><a href="#cb20-19" tabindex="-1"></a><span class="fu">print</span>(resumo_global)</span>
 <span id="cb20-20"><a href="#cb20-20" tabindex="-1"></a></span>
 <span id="cb20-21"><a href="#cb20-21" tabindex="-1"></a>importancia_global <span class="ot">&lt;-</span> <span class="fu">salvar_importancia_e_curvas</span>(global, <span class="st">&quot;07_global&quot;</span>)</span>
-<span id="cb20-22"><a href="#cb20-22" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">round</span>(importancia_global, <span class="dv">3</span>))</span></code></pre></div>
+<span id="cb20-22"><a href="#cb20-22" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">round</span>(importancia_global, <span class="dv">3</span>))</span>
+<span id="cb20-23"><a href="#cb20-23" tabindex="-1"></a><span class="co"># Boxplots da importância nos modelos de cada algoritmo que entraram no ensemble (Figura 2 do TCC)</span></span>
+<span id="cb20-24"><a href="#cb20-24" tabindex="-1"></a>importancia_por_modelo <span class="ot">&lt;-</span> <span class="fu">salvar_importancia_por_modelo</span>(global, <span class="st">&quot;07_global&quot;</span>, <span class="fu">names</span>(importancia_global))</span></code></pre></div>
 </div>
 <div id="módulo-8-projeção-na-costa-brasileira" class="section level2">
 <h2>10. Módulo 8 – Projeção na costa brasileira</h2>
