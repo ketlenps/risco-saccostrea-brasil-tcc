@@ -1596,8 +1596,8 @@ está se espalhando e os registros daqui mostram onde ela já chegou, e
 não todos os lugares onde poderia viver. Só variáveis ambientais entram
 nessa parte.</li>
 <li><strong>Pressão antrópica (P):</strong> o quanto portos, plataformas
-e poços de petróleo e gás podem trazer larvas e adultos incrustados
-(água de lastro, cascos e estruturas).</li>
+e poços ativos de petróleo e gás podem trazer larvas e adultos
+incrustados (água de lastro, cascos e estruturas).</li>
 <li><strong>Risco de introdução:</strong> R = A × P.</li>
 </ol>
 <p>Todo o processamento foi feito em um único script em R (<a href="https://github.com/ketlenps/risco-saccostrea-brasil-tcc/blob/main/Saccostrea_modelagem_TCC2.R"><code>Saccostrea_modelagem_TCC2.R</code></a>),
@@ -1679,32 +1679,42 @@ alterada para repetir a análise.</p>
 <span id="cb2-23"><a href="#cb2-23" tabindex="-1"></a><span class="co"># espacial (.shp, .gpkg, .kml). Pode usar direto os arquivos oficiais:</span></span>
 <span id="cb2-24"><a href="#cb2-24" tabindex="-1"></a><span class="co">#   portos      → shapefile &quot;Instalações Portuárias Outorgadas&quot; da ANTAQ</span></span>
 <span id="cb2-25"><a href="#cb2-25" tabindex="-1"></a><span class="co">#   plataformas → dados-abertos-plataformas-operacao.csv da ANP</span></span>
-<span id="cb2-26"><a href="#cb2-26" tabindex="-1"></a><span class="co">#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = &quot;M&quot;)</span></span>
-<span id="cb2-27"><a href="#cb2-27" tabindex="-1"></a><span class="co"># Pontos em terra longe da costa (portos fluviais) são descartados antes do Módulo 10.</span></span>
-<span id="cb2-28"><a href="#cb2-28" tabindex="-1"></a><span class="co"># Para cada tipo, o script usa o PRIMEIRO arquivo da lista que existir na pasta.</span></span>
-<span id="cb2-29"><a href="#cb2-29" tabindex="-1"></a><span class="co"># Prefira nomes sem acento (ex.: pocos_finall.csv): acentos em nomes de arquivo</span></span>
-<span id="cb2-30"><a href="#cb2-30" tabindex="-1"></a><span class="co"># costumam estragar ao passar um .zip do Windows para o Linux.</span></span>
-<span id="cb2-31"><a href="#cb2-31" tabindex="-1"></a>primeiro_existente <span class="ot">&lt;-</span> <span class="cf">function</span>(...) {</span>
-<span id="cb2-32"><a href="#cb2-32" tabindex="-1"></a>  opcoes <span class="ot">&lt;-</span> <span class="fu">c</span>(...)</span>
-<span id="cb2-33"><a href="#cb2-33" tabindex="-1"></a>  existentes <span class="ot">&lt;-</span> opcoes[<span class="fu">file.exists</span>(opcoes)]</span>
-<span id="cb2-34"><a href="#cb2-34" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(existentes) <span class="sc">&gt;</span> <span class="dv">0</span>) existentes[<span class="dv">1</span>] <span class="cf">else</span> opcoes[<span class="dv">1</span>]</span>
-<span id="cb2-35"><a href="#cb2-35" tabindex="-1"></a>}</span>
-<span id="cb2-36"><a href="#cb2-36" tabindex="-1"></a>ARQ_INFRA <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
-<span id="cb2-37"><a href="#cb2-37" tabindex="-1"></a>  <span class="at">portos      =</span> <span class="fu">primeiro_existente</span>(<span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;Portos.shp&quot;</span>),</span>
-<span id="cb2-38"><a href="#cb2-38" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;portos_costeiros_finall.csv&quot;</span>)),</span>
-<span id="cb2-39"><a href="#cb2-39" tabindex="-1"></a>  <span class="at">plataformas =</span> <span class="fu">primeiro_existente</span>(<span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;plataformas_finalll.csv&quot;</span>),</span>
-<span id="cb2-40"><a href="#cb2-40" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;dados-abertos-plataformas-operacao.csv&quot;</span>)),</span>
-<span id="cb2-41"><a href="#cb2-41" tabindex="-1"></a>  <span class="at">pocos       =</span> <span class="fu">primeiro_existente</span>(<span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;pocos_finall.csv&quot;</span>),</span>
-<span id="cb2-42"><a href="#cb2-42" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;poços_finall.csv&quot;</span>),</span>
-<span id="cb2-43"><a href="#cb2-43" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;tabela-pocos.csv&quot;</span>))</span>
-<span id="cb2-44"><a href="#cb2-44" tabindex="-1"></a>)</span>
-<span id="cb2-45"><a href="#cb2-45" tabindex="-1"></a></span>
-<span id="cb2-46"><a href="#cb2-46" tabindex="-1"></a><span class="co"># Polígonos dos campos de produção da ANP (opcional). Só aparecem nos mapas.</span></span>
-<span id="cb2-47"><a href="#cb2-47" tabindex="-1"></a>ARQ_CAMPOS <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;campos_producao.shp&quot;</span>)</span>
-<span id="cb2-48"><a href="#cb2-48" tabindex="-1"></a></span>
-<span id="cb2-49"><a href="#cb2-49" tabindex="-1"></a><span class="co"># Linha da ZEE / 200 milhas náuticas (opcional). Só aparece no mapa da área de</span></span>
-<span id="cb2-50"><a href="#cb2-50" tabindex="-1"></a><span class="co"># estudo. Pode ser a do script do PDPetro (&quot;BR-200M (Line).shp&quot;), renomeada.</span></span>
-<span id="cb2-51"><a href="#cb2-51" tabindex="-1"></a>ARQ_ZEE <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;zee.shp&quot;</span>)</span></code></pre></div>
+<span id="cb2-26"><a href="#cb2-26" tabindex="-1"></a><span class="co">#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = &quot;M&quot; e</span></span>
+<span id="cb2-27"><a href="#cb2-27" tabindex="-1"></a><span class="co">#                 com os poços ativos, ver SITUACOES_POCOS_ATIVOS)</span></span>
+<span id="cb2-28"><a href="#cb2-28" tabindex="-1"></a><span class="co"># Pontos em terra longe da costa (portos fluviais) são descartados antes do Módulo 10.</span></span>
+<span id="cb2-29"><a href="#cb2-29" tabindex="-1"></a><span class="co"># Para cada tipo, o script usa o PRIMEIRO arquivo da lista que existir na pasta.</span></span>
+<span id="cb2-30"><a href="#cb2-30" tabindex="-1"></a><span class="co"># Prefira nomes sem acento (ex.: pocos_finall.csv): acentos em nomes de arquivo</span></span>
+<span id="cb2-31"><a href="#cb2-31" tabindex="-1"></a><span class="co"># costumam estragar ao passar um .zip do Windows para o Linux.</span></span>
+<span id="cb2-32"><a href="#cb2-32" tabindex="-1"></a>primeiro_existente <span class="ot">&lt;-</span> <span class="cf">function</span>(...) {</span>
+<span id="cb2-33"><a href="#cb2-33" tabindex="-1"></a>  opcoes <span class="ot">&lt;-</span> <span class="fu">c</span>(...)</span>
+<span id="cb2-34"><a href="#cb2-34" tabindex="-1"></a>  existentes <span class="ot">&lt;-</span> opcoes[<span class="fu">file.exists</span>(opcoes)]</span>
+<span id="cb2-35"><a href="#cb2-35" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(existentes) <span class="sc">&gt;</span> <span class="dv">0</span>) existentes[<span class="dv">1</span>] <span class="cf">else</span> opcoes[<span class="dv">1</span>]</span>
+<span id="cb2-36"><a href="#cb2-36" tabindex="-1"></a>}</span>
+<span id="cb2-37"><a href="#cb2-37" tabindex="-1"></a>ARQ_INFRA <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb2-38"><a href="#cb2-38" tabindex="-1"></a>  <span class="at">portos      =</span> <span class="fu">primeiro_existente</span>(<span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;Portos.shp&quot;</span>),</span>
+<span id="cb2-39"><a href="#cb2-39" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;portos_costeiros_finall.csv&quot;</span>)),</span>
+<span id="cb2-40"><a href="#cb2-40" tabindex="-1"></a>  <span class="at">plataformas =</span> <span class="fu">primeiro_existente</span>(<span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;plataformas_finalll.csv&quot;</span>),</span>
+<span id="cb2-41"><a href="#cb2-41" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;dados-abertos-plataformas-operacao.csv&quot;</span>)),</span>
+<span id="cb2-42"><a href="#cb2-42" tabindex="-1"></a>  <span class="at">pocos       =</span> <span class="fu">primeiro_existente</span>(<span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;pocos_finall.csv&quot;</span>),</span>
+<span id="cb2-43"><a href="#cb2-43" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;poços_finall.csv&quot;</span>),</span>
+<span id="cb2-44"><a href="#cb2-44" tabindex="-1"></a>                                   <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;tabela-pocos.csv&quot;</span>))</span>
+<span id="cb2-45"><a href="#cb2-45" tabindex="-1"></a>)</span>
+<span id="cb2-46"><a href="#cb2-46" tabindex="-1"></a></span>
+<span id="cb2-47"><a href="#cb2-47" tabindex="-1"></a><span class="co"># Poços: só os ativos (decisão de 26/11/2026). Os abandonados, arrasados e fechados</span></span>
+<span id="cb2-48"><a href="#cb2-48" tabindex="-1"></a><span class="co"># (cerca de 90% dos poços marítimos da ANP) não recebem mais navios-sonda nem embarcações</span></span>
+<span id="cb2-49"><a href="#cb2-49" tabindex="-1"></a><span class="co"># de apoio, que são o que justifica os poços como fonte de pressão. Vale para a</span></span>
+<span id="cb2-50"><a href="#cb2-50" tabindex="-1"></a><span class="co"># coluna SITUACAO da tabela-pocos.csv; com vetor vazio, entram todos os poços.</span></span>
+<span id="cb2-51"><a href="#cb2-51" tabindex="-1"></a>SITUACOES_POCOS_ATIVOS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;PRODUZINDO&quot;</span>, <span class="st">&quot;INJETANDO&quot;</span>, <span class="st">&quot;EM PERFURAÇÃO&quot;</span>, <span class="st">&quot;EM COMPLETAÇÃO&quot;</span>,</span>
+<span id="cb2-52"><a href="#cb2-52" tabindex="-1"></a>                            <span class="st">&quot;EM INTERVENÇÃO&quot;</span>, <span class="st">&quot;EM AVALIAÇÃO&quot;</span>, <span class="st">&quot;EM OBSERVAÇÃO&quot;</span>,</span>
+<span id="cb2-53"><a href="#cb2-53" tabindex="-1"></a>                            <span class="st">&quot;EQUIPADO AGUARDANDO INÍCIO DE OPERAÇÃO&quot;</span>,</span>
+<span id="cb2-54"><a href="#cb2-54" tabindex="-1"></a>                            <span class="st">&quot;OPERANDO PARA CAPTAÇÃO DE ÁGUA&quot;</span>)</span>
+<span id="cb2-55"><a href="#cb2-55" tabindex="-1"></a></span>
+<span id="cb2-56"><a href="#cb2-56" tabindex="-1"></a><span class="co"># Polígonos dos campos de produção da ANP (opcional). Só aparecem nos mapas.</span></span>
+<span id="cb2-57"><a href="#cb2-57" tabindex="-1"></a>ARQ_CAMPOS <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_ANTR, <span class="st">&quot;campos_producao.shp&quot;</span>)</span>
+<span id="cb2-58"><a href="#cb2-58" tabindex="-1"></a></span>
+<span id="cb2-59"><a href="#cb2-59" tabindex="-1"></a><span class="co"># Linha da ZEE / 200 milhas náuticas (opcional). Só aparece no mapa da área de</span></span>
+<span id="cb2-60"><a href="#cb2-60" tabindex="-1"></a><span class="co"># estudo. Pode ser a do script do PDPetro (&quot;BR-200M (Line).shp&quot;), renomeada.</span></span>
+<span id="cb2-61"><a href="#cb2-61" tabindex="-1"></a>ARQ_ZEE <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;zee.shp&quot;</span>)</span></code></pre></div>
 </div>
 <div id="parâmetros" class="section level3">
 <h3>0.3 – Parâmetros</h3>
@@ -1717,157 +1727,161 @@ alterada para repetir a análise.</p>
 <span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>BAIXAR_GBIF      <span class="ot">&lt;-</span> <span class="cn">TRUE</span>  <span class="co"># FALSE = usa o gbif_bruto.csv já baixado</span></span>
 <span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>BAIXAR_OBIS      <span class="ot">&lt;-</span> <span class="cn">TRUE</span>  <span class="co"># FALSE = usa o obis_bruto.csv já baixado</span></span>
 <span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>BAIXAR_BIOORACLE <span class="ot">&lt;-</span> <span class="cn">TRUE</span>  <span class="co"># FALSE = usa os .tif já salvos em dados/ambientais</span></span>
-<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>FATOR_AGREGACAO  <span class="ot">&lt;-</span> <span class="dv">1</span>     <span class="co"># 1 = 0,05° (original); 2 = 0,1° (mais rápido para testes)</span></span>
-<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a></span>
-<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a><span class="co"># Ocorrências</span></span>
-<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>INCERTEZA_MAX_M <span class="ot">&lt;-</span> <span class="dv">10000</span>  <span class="co"># descarta registros do GBIF e do OBIS com incerteza maior que 10 km</span></span>
-<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>ANO_MIN         <span class="ot">&lt;-</span> <span class="dv">1950</span></span>
-<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>DIST_AJUSTE_KM  <span class="ot">&lt;-</span> <span class="dv">15</span>     <span class="co"># registro em célula sem dado (estuário) é movido até 15 km</span></span>
-<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>DIST_FILTRO_KM  <span class="ot">&lt;-</span> <span class="dv">10</span>     <span class="co"># distância mínima entre ocorrências</span></span>
-<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a></span>
-<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a><span class="co"># Área de calibração: faixa costeira</span></span>
-<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a>FAIXA_COSTEIRA_CEL <span class="ot">&lt;-</span> <span class="dv">6</span>   <span class="co"># 6 células × 0,05° ≈ 30 km a partir da linha de costa</span></span>
-<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a></span>
-<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a><span class="co"># Seleção de variáveis</span></span>
-<span id="cb3-22"><a href="#cb3-22" tabindex="-1"></a><span class="co"># Ordem = importância ecológica esperada para uma ostra de entremarés:</span></span>
-<span id="cb3-23"><a href="#cb3-23" tabindex="-1"></a><span class="co"># limites térmicos da água, salinidade mínima (estuário), temperatura do ar</span></span>
-<span id="cb3-24"><a href="#cb3-24" tabindex="-1"></a><span class="co"># (exposição na maré baixa), alimento, hidrodinâmica.</span></span>
-<span id="cb3-25"><a href="#cb3-25" tabindex="-1"></a><span class="co"># A temperatura do ar costuma ser muito correlacionada com a da água; se for,</span></span>
-<span id="cb3-26"><a href="#cb3-26" tabindex="-1"></a><span class="co"># fica a que vem primeiro nesta lista. Para priorizar o ar, coloque &quot;ar_max&quot;</span></span>
-<span id="cb3-27"><a href="#cb3-27" tabindex="-1"></a><span class="co"># e &quot;ar_min&quot; antes de &quot;sst_max&quot; e &quot;sst_min&quot;.</span></span>
-<span id="cb3-28"><a href="#cb3-28" tabindex="-1"></a><span class="co"># Ordem de prioridade (decisão de 24/10/2026): a temperatura mínima do ar vem</span></span>
-<span id="cb3-29"><a href="#cb3-29" tabindex="-1"></a><span class="co"># primeiro (a ostra é de entremarés e fica exposta ao ar na maré baixa; com o</span></span>
-<span id="cb3-30"><a href="#cb3-30" tabindex="-1"></a><span class="co"># preenchimento das baías, sua correlação com sst_max passou de 0,698 para</span></span>
-<span id="cb3-31"><a href="#cb3-31" tabindex="-1"></a><span class="co"># 0,712 e ela saía do modelo). A batimetria vem logo depois.</span></span>
-<span id="cb3-32"><a href="#cb3-32" tabindex="-1"></a>PRIORIDADE_VARIAVEIS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;ar_min&quot;</span>, <span class="st">&quot;batimetria&quot;</span>, <span class="st">&quot;sst_max&quot;</span>, <span class="st">&quot;sst_min&quot;</span>, <span class="st">&quot;sal_min&quot;</span>,</span>
-<span id="cb3-33"><a href="#cb3-33" tabindex="-1"></a>                          <span class="st">&quot;ar_max&quot;</span>, <span class="st">&quot;chl_log&quot;</span>, <span class="st">&quot;vel_mean&quot;</span>, <span class="st">&quot;sal_mean&quot;</span>, <span class="st">&quot;sst_mean&quot;</span>)</span>
-<span id="cb3-34"><a href="#cb3-34" tabindex="-1"></a>LIMIAR_CORRELACAO <span class="ot">&lt;-</span> <span class="fl">0.7</span></span>
-<span id="cb3-35"><a href="#cb3-35" tabindex="-1"></a>VIF_MAX           <span class="ot">&lt;-</span> <span class="dv">5</span></span>
-<span id="cb3-36"><a href="#cb3-36" tabindex="-1"></a></span>
-<span id="cb3-37"><a href="#cb3-37" tabindex="-1"></a><span class="co"># Modelagem</span></span>
-<span id="cb3-38"><a href="#cb3-38" tabindex="-1"></a>MODELOS          <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;GLM&quot;</span>, <span class="st">&quot;GBM&quot;</span>, <span class="st">&quot;RFd&quot;</span>, <span class="st">&quot;MAXNET&quot;</span>)  <span class="co"># RFd = Random Forest com sub-amostragem balanceada</span></span>
-<span id="cb3-39"><a href="#cb3-39" tabindex="-1"></a>METRICAS         <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;TSS&quot;</span>, <span class="st">&quot;AUCroc&quot;</span>, <span class="st">&quot;BOYCE&quot;</span>)</span>
-<span id="cb3-40"><a href="#cb3-40" tabindex="-1"></a>N_PA_REP         <span class="ot">&lt;-</span> <span class="dv">3</span>     <span class="co"># conjuntos de pseudo-ausências</span></span>
-<span id="cb3-41"><a href="#cb3-41" tabindex="-1"></a>N_PA_MIN         <span class="ot">&lt;-</span> <span class="dv">1000</span></span>
-<span id="cb3-42"><a href="#cb3-42" tabindex="-1"></a>PA_POR_PRESENCA  <span class="ot">&lt;-</span> <span class="dv">10</span>    <span class="co"># nº de pseudo-ausências = max(N_PA_MIN, 10 × nº de presenças)</span></span>
-<span id="cb3-43"><a href="#cb3-43" tabindex="-1"></a>K_BLOCOS         <span class="ot">&lt;-</span> <span class="dv">5</span>     <span class="co"># blocos espaciais do modelo global</span></span>
-<span id="cb3-44"><a href="#cb3-44" tabindex="-1"></a>TAM_BLOCO_GRAUS  <span class="ot">&lt;-</span> <span class="dv">5</span>     <span class="co"># lado de cada bloco (graus)</span></span>
-<span id="cb3-45"><a href="#cb3-45" tabindex="-1"></a>K_BLOCOS_BRASIL  <span class="ot">&lt;-</span> <span class="dv">4</span>     <span class="co"># faixas de latitude no modelo só do Brasil</span></span>
-<span id="cb3-46"><a href="#cb3-46" tabindex="-1"></a>TSS_MIN_ENSEMBLE <span class="ot">&lt;-</span> <span class="fl">0.6</span>   <span class="co"># modelos com TSS de validação abaixo disso ficam fora do ensemble</span></span>
-<span id="cb3-47"><a href="#cb3-47" tabindex="-1"></a></span>
-<span id="cb3-48"><a href="#cb3-48" tabindex="-1"></a><span class="co"># Área de projeção</span></span>
-<span id="cb3-49"><a href="#cb3-49" tabindex="-1"></a>BUFFER_BRASIL_KM <span class="ot">&lt;-</span> <span class="dv">150</span>   <span class="co"># inclui as ilhas oceânicas próximas da costa</span></span>
-<span id="cb3-50"><a href="#cb3-50" tabindex="-1"></a></span>
-<span id="cb3-51"><a href="#cb3-51" tabindex="-1"></a><span class="co"># Mapas do oceano inteiro (decisão de 24/10/2026): os mapas de adequabilidade,</span></span>
-<span id="cb3-52"><a href="#cb3-52" tabindex="-1"></a><span class="co"># incerteza, MESS e clima mostram o modelo projetado em todo o mar desta caixa.</span></span>
-<span id="cb3-53"><a href="#cb3-53" tabindex="-1"></a><span class="co"># As ESTATÍSTICAS (porcentagens, risco, infraestruturas, manguezais) continuam</span></span>
-<span id="cb3-54"><a href="#cb3-54" tabindex="-1"></a><span class="co"># só na faixa costeira, onde o modelo foi calibrado. Longe da costa o valor diz</span></span>
-<span id="cb3-55"><a href="#cb3-55" tabindex="-1"></a><span class="co"># apenas se a água de superfície seria adequada (relevante para plataformas).</span></span>
-<span id="cb3-56"><a href="#cb3-56" tabindex="-1"></a><span class="co"># Lagoas, baías fechadas e estuários sem dado no Bio-ORACLE (Lagoa dos Patos,</span></span>
-<span id="cb3-57"><a href="#cb3-57" tabindex="-1"></a><span class="co"># Guanabara, Paranaguá...) não podem ser modelados: ficam sem valor.</span></span>
-<span id="cb3-58"><a href="#cb3-58" tabindex="-1"></a>MAPA_OCEANO     <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb3-59"><a href="#cb3-59" tabindex="-1"></a>EXTENSAO_OCEANO <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="sc">-</span><span class="dv">75</span>, <span class="sc">-</span><span class="dv">25</span>, <span class="sc">-</span><span class="dv">40</span>, <span class="dv">8</span>)   <span class="co"># lon mín, lon máx, lat mín, lat máx</span></span>
-<span id="cb3-60"><a href="#cb3-60" tabindex="-1"></a></span>
-<span id="cb3-61"><a href="#cb3-61" tabindex="-1"></a><span class="co"># Baías, estuários e lagoas (decisão de 24/10/2026). O Bio-ORACLE v3 não tem</span></span>
-<span id="cb3-62"><a href="#cb3-62" tabindex="-1"></a><span class="co"># dado em muitas baías e lagoas (Lagoa dos Patos, Mirim, Guanabara, Paranaguá,</span></span>
-<span id="cb3-63"><a href="#cb3-63" tabindex="-1"></a><span class="co"># Santos...). Com PREENCHER_BAIAS = TRUE, as camadas ambientais são estendidas</span></span>
-<span id="cb3-64"><a href="#cb3-64" tabindex="-1"></a><span class="co"># a partir das células de mar vizinhas para dentro dessas células de água</span></span>
-<span id="cb3-65"><a href="#cb3-65" tabindex="-1"></a><span class="co"># (linha de costa e lagoas do GSHHG). Vale para a calibração, a projeção e o</span></span>
-<span id="cb3-66"><a href="#cb3-66" tabindex="-1"></a><span class="co"># clima. São valores ESTIMADOS por extensão do mar: diga isso no texto (o</span></span>
-<span id="cb3-67"><a href="#cb3-67" tabindex="-1"></a><span class="co"># Bio-ORACLE v2, usado no PDPetro, fazia o mesmo tipo de extrapolação).</span></span>
-<span id="cb3-68"><a href="#cb3-68" tabindex="-1"></a>PREENCHER_BAIAS <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb3-69"><a href="#cb3-69" tabindex="-1"></a>ARQ_GSHHG_TERRA <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;gshhg&quot;</span>, <span class="st">&quot;GSHHS_h_L1.shp&quot;</span>)  <span class="co"># costa</span></span>
-<span id="cb3-70"><a href="#cb3-70" tabindex="-1"></a>ARQ_GSHHG_LAGOS <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;gshhg&quot;</span>, <span class="st">&quot;GSHHS_h_L2.shp&quot;</span>)  <span class="co"># lagos e lagoas</span></span>
-<span id="cb3-71"><a href="#cb3-71" tabindex="-1"></a>LIMIAR_AGUA     <span class="ot">&lt;-</span> <span class="fl">0.3</span>    <span class="co"># fração mínima de água para a célula ser preenchida</span></span>
-<span id="cb3-72"><a href="#cb3-72" tabindex="-1"></a>DIST_MAX_BAIAS_KM <span class="ot">&lt;-</span> <span class="dv">100</span>  <span class="co"># só preenche água a até 100 km do mar com dado (não sobe rios)</span></span>
-<span id="cb3-73"><a href="#cb3-73" tabindex="-1"></a><span class="co"># Lagos e lagoas FECHADOS, sem ligação com o mar (nível 2 do GSHHG), ficam FORA</span></span>
-<span id="cb3-74"><a href="#cb3-74" tabindex="-1"></a><span class="co"># do preenchimento (decisão de 06/11/2026): são de água doce (Lagoa Mirim,</span></span>
-<span id="cb3-75"><a href="#cb3-75" tabindex="-1"></a><span class="co"># Mangueira, Itapeva, represas Billings e Guarapiranga, lagos do Marajó...) e</span></span>
-<span id="cb3-76"><a href="#cb3-76" tabindex="-1"></a><span class="co"># receberiam a salinidade do mar por extensão, o que contraria o limite de</span></span>
-<span id="cb3-77"><a href="#cb3-77" tabindex="-1"></a><span class="co"># salinidade da espécie (LIMITES_FISIOLOGICOS). Baías, estuários e lagoas ligadas</span></span>
-<span id="cb3-78"><a href="#cb3-78" tabindex="-1"></a><span class="co"># ao oceano (Patos, Peixe, Guanabara, Paranaguá, Todos os Santos, Mundaú...)</span></span>
-<span id="cb3-79"><a href="#cb3-79" tabindex="-1"></a><span class="co"># continuam preenchidas. Exceção: lagoas que o GSHHG trata como fechadas, mas</span></span>
-<span id="cb3-80"><a href="#cb3-80" tabindex="-1"></a><span class="co"># que se ligam ao mar por canais e são salgadas ou salobras (RJ).</span></span>
-<span id="cb3-81"><a href="#cb3-81" tabindex="-1"></a>INCLUIR_LAGOS_FECHADOS <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
-<span id="cb3-82"><a href="#cb3-82" tabindex="-1"></a>LAGOAS_LIGADAS_AO_MAR <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb3-83"><a href="#cb3-83" tabindex="-1"></a>  <span class="at">nome =</span> <span class="fu">c</span>(<span class="st">&quot;Araruama&quot;</span>, <span class="st">&quot;Saquarema&quot;</span>, <span class="st">&quot;Maricá&quot;</span>),</span>
-<span id="cb3-84"><a href="#cb3-84" tabindex="-1"></a>  <span class="at">lon  =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">42.20</span>, <span class="sc">-</span><span class="fl">42.53</span>, <span class="sc">-</span><span class="fl">42.84</span>),</span>
-<span id="cb3-85"><a href="#cb3-85" tabindex="-1"></a>  <span class="at">lat  =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">22.87</span>, <span class="sc">-</span><span class="fl">22.92</span>, <span class="sc">-</span><span class="fl">22.95</span>))</span>
-<span id="cb3-86"><a href="#cb3-86" tabindex="-1"></a><span class="co"># Lagoa dos Patos (decisão de 18/11/2026): só o ESTUÁRIO, ao sul da Ponta da</span></span>
-<span id="cb3-87"><a href="#cb3-87" tabindex="-1"></a><span class="co"># Feitoria (~31°41&#39; S), é preenchido. O resto da lagoa e o Guaíba são de água</span></span>
-<span id="cb3-88"><a href="#cb3-88" tabindex="-1"></a><span class="co"># doce na maior parte do ano (Seeliger et al., 1998) e, preenchidos a partir do</span></span>
-<span id="cb3-89"><a href="#cb3-89" tabindex="-1"></a><span class="co"># mar, apareciam como adequados (salinidade do mar por extensão). O polígono foi</span></span>
-<span id="cb3-90"><a href="#cb3-90" tabindex="-1"></a><span class="co"># tirado do GSHHG em resolução máxima (qgis/recorte_lagoa_dos_patos.py).</span></span>
-<span id="cb3-91"><a href="#cb3-91" tabindex="-1"></a><span class="co"># NULL = preencher a lagoa inteira, como na versão 4.</span></span>
-<span id="cb3-92"><a href="#cb3-92" tabindex="-1"></a>ARQ_AGUA_EXCLUIDA <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;lagoa_patos_sem_estuario.gpkg&quot;</span>)</span>
-<span id="cb3-93"><a href="#cb3-93" tabindex="-1"></a></span>
-<span id="cb3-94"><a href="#cb3-94" tabindex="-1"></a><span class="co"># Pressão e risco</span></span>
-<span id="cb3-95"><a href="#cb3-95" tabindex="-1"></a>DECAIMENTO_KM   <span class="ot">&lt;-</span> <span class="dv">50</span>     <span class="co"># a 50 km de uma infraestrutura, a pressão cai para 37 %</span></span>
-<span id="cb3-96"><a href="#cb3-96" tabindex="-1"></a>PESOS_PRESSAO   <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">portos =</span> <span class="dv">1</span>, <span class="at">plataformas =</span> <span class="dv">1</span>, <span class="at">pocos =</span> <span class="dv">1</span>)</span>
-<span id="cb3-97"><a href="#cb3-97" tabindex="-1"></a>BUFFER_INFRA_KM <span class="ot">&lt;-</span> <span class="dv">10</span>     <span class="co"># raio em volta de cada infraestrutura para ler a adequabilidade</span></span>
-<span id="cb3-98"><a href="#cb3-98" tabindex="-1"></a></span>
-<span id="cb3-99"><a href="#cb3-99" tabindex="-1"></a><span class="co"># Mapas das infraestruturas</span></span>
-<span id="cb3-100"><a href="#cb3-100" tabindex="-1"></a>DIST_REGISTRO_KM     <span class="ot">&lt;-</span> <span class="dv">50</span>       <span class="co"># &quot;perto de um registro conhecido&quot; = até 50 km</span></span>
-<span id="cb3-101"><a href="#cb3-101" tabindex="-1"></a>INFRA_COMO_DENSIDADE <span class="ot">&lt;-</span> <span class="st">&quot;pocos&quot;</span>  <span class="co"># tipos mostrados como densidade, e não como pontos</span></span>
-<span id="cb3-102"><a href="#cb3-102" tabindex="-1"></a>RES_DENSIDADE_GRAUS  <span class="ot">&lt;-</span> <span class="fl">0.25</span>     <span class="co"># célula do mapa de densidade (0,25° ≈ 28 km)</span></span>
-<span id="cb3-103"><a href="#cb3-103" tabindex="-1"></a></span>
-<span id="cb3-104"><a href="#cb3-104" tabindex="-1"></a><span class="co"># Recortes regionais ampliados (graus decimais)</span></span>
-<span id="cb3-105"><a href="#cb3-105" tabindex="-1"></a>REGIOES_ZOOM <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
-<span id="cb3-106"><a href="#cb3-106" tabindex="-1"></a>  <span class="at">arquivo =</span> <span class="fu">c</span>(<span class="st">&quot;norte&quot;</span>, <span class="st">&quot;nordeste&quot;</span>, <span class="st">&quot;baia_todos_santos&quot;</span>, <span class="st">&quot;campos_santos&quot;</span>, <span class="st">&quot;sul&quot;</span>),</span>
-<span id="cb3-107"><a href="#cb3-107" tabindex="-1"></a>  <span class="at">titulo  =</span> <span class="fu">c</span>(<span class="st">&quot;Norte (AP–PA–MA)&quot;</span>, <span class="st">&quot;Nordeste setentrional (CE–PE)&quot;</span>,</span>
-<span id="cb3-108"><a href="#cb3-108" tabindex="-1"></a>              <span class="st">&quot;Baía de Todos os Santos (BA)&quot;</span>, <span class="st">&quot;Bacias de Campos e Santos (ES–RJ–SP)&quot;</span>,</span>
-<span id="cb3-109"><a href="#cb3-109" tabindex="-1"></a>              <span class="st">&quot;Sul (PR–SC)&quot;</span>),</span>
-<span id="cb3-110"><a href="#cb3-110" tabindex="-1"></a>  <span class="at">lon_min =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">51.0</span>, <span class="sc">-</span><span class="fl">41.0</span>, <span class="sc">-</span><span class="fl">39.6</span>, <span class="sc">-</span><span class="fl">48.5</span>, <span class="sc">-</span><span class="fl">49.2</span>),</span>
-<span id="cb3-111"><a href="#cb3-111" tabindex="-1"></a>  <span class="at">lon_max =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">41.0</span>, <span class="sc">-</span><span class="fl">34.5</span>, <span class="sc">-</span><span class="fl">37.6</span>, <span class="sc">-</span><span class="fl">39.0</span>, <span class="sc">-</span><span class="fl">47.3</span>),</span>
-<span id="cb3-112"><a href="#cb3-112" tabindex="-1"></a>  <span class="at">lat_min =</span> <span class="fu">c</span>( <span class="sc">-</span><span class="fl">3.5</span>,  <span class="sc">-</span><span class="fl">8.6</span>, <span class="sc">-</span><span class="fl">14.0</span>, <span class="sc">-</span><span class="fl">25.5</span>, <span class="sc">-</span><span class="fl">28.6</span>),</span>
-<span id="cb3-113"><a href="#cb3-113" tabindex="-1"></a>  <span class="at">lat_max =</span> <span class="fu">c</span>(  <span class="fl">4.5</span>,  <span class="sc">-</span><span class="fl">2.0</span>, <span class="sc">-</span><span class="fl">12.2</span>, <span class="sc">-</span><span class="fl">20.0</span>, <span class="sc">-</span><span class="fl">25.0</span>)</span>
-<span id="cb3-114"><a href="#cb3-114" tabindex="-1"></a>)</span>
-<span id="cb3-115"><a href="#cb3-115" tabindex="-1"></a></span>
-<span id="cb3-116"><a href="#cb3-116" tabindex="-1"></a><span class="co"># Limites fisiológicos para a validação qualitativa (Módulo 8).</span></span>
-<span id="cb3-117"><a href="#cb3-117" tabindex="-1"></a><span class="co"># Preencha com limites de tolerância de ADULTOS publicados na literatura e cite.</span></span>
-<span id="cb3-118"><a href="#cb3-118" tabindex="-1"></a><span class="co"># Atenção: Marcelino et al. (2023) testaram só larvas, entre 24–34 °C e</span></span>
-<span id="cb3-119"><a href="#cb3-119" tabindex="-1"></a><span class="co"># salinidade 30–40; isso não define os limites da espécie.</span></span>
-<span id="cb3-120"><a href="#cb3-120" tabindex="-1"></a><span class="co"># Deixe NA para pular.</span></span>
-<span id="cb3-121"><a href="#cb3-121" tabindex="-1"></a>LIMITES_FISIOLOGICOS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">sst_min =</span> <span class="fl">4.8</span>, <span class="at">sst_max =</span> <span class="dv">40</span>, <span class="at">sal_min =</span> <span class="dv">15</span>)</span>
-<span id="cb3-122"><a href="#cb3-122" tabindex="-1"></a></span>
-<span id="cb3-123"><a href="#cb3-123" tabindex="-1"></a><span class="co"># Mudanças climáticas (Módulo 13): o mesmo modelo é projetado nas camadas</span></span>
-<span id="cb3-124"><a href="#cb3-124" tabindex="-1"></a><span class="co"># futuras do Bio-ORACLE v3 (não há novo ajuste). Cenários disponíveis:</span></span>
-<span id="cb3-125"><a href="#cb3-125" tabindex="-1"></a><span class="co"># ssp119, ssp126, ssp245, ssp370, ssp460, ssp585. Décadas: 2020 a 2090.</span></span>
-<span id="cb3-126"><a href="#cb3-126" tabindex="-1"></a>CENARIOS_CLIMA <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;ssp245&quot;</span>, <span class="st">&quot;ssp585&quot;</span>)  <span class="co"># intermediário e pessimista</span></span>
-<span id="cb3-127"><a href="#cb3-127" tabindex="-1"></a>DECADAS_CLIMA  <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">2050</span>, <span class="dv">2090</span>)          <span class="co"># 2050 = média de 2050–2060; 2090 = 2090–2100</span></span>
-<span id="cb3-128"><a href="#cb3-128" tabindex="-1"></a></span>
-<span id="cb3-129"><a href="#cb3-129" tabindex="-1"></a><span class="co"># Ambientes de alta importância ecológica (Módulo 12.5): polígonos (.shp, .gpkg).</span></span>
-<span id="cb3-130"><a href="#cb3-130" tabindex="-1"></a><span class="co"># Manguezais: Atlas dos Manguezais do Brasil (ICMBio 2018), arquivo Mangues.shp.</span></span>
-<span id="cb3-131"><a href="#cb3-131" tabindex="-1"></a><span class="co"># Marismas: não há mapa nacional pronto (ver o guia de dados). Se não tiver, deixe</span></span>
-<span id="cb3-132"><a href="#cb3-132" tabindex="-1"></a><span class="co"># o arquivo de fora: o script segue sem ele.</span></span>
-<span id="cb3-133"><a href="#cb3-133" tabindex="-1"></a>ARQ_HABITATS <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
-<span id="cb3-134"><a href="#cb3-134" tabindex="-1"></a>  <span class="at">manguezais =</span> <span class="fu">file.path</span>(PASTA_HAB, <span class="st">&quot;Mangues.shp&quot;</span>),</span>
-<span id="cb3-135"><a href="#cb3-135" tabindex="-1"></a>  <span class="at">marismas   =</span> <span class="fu">file.path</span>(PASTA_HAB, <span class="st">&quot;marismas.shp&quot;</span>)</span>
-<span id="cb3-136"><a href="#cb3-136" tabindex="-1"></a>)</span>
-<span id="cb3-137"><a href="#cb3-137" tabindex="-1"></a>RAIO_HABITAT_CEL <span class="ot">&lt;-</span> <span class="dv">2</span>  <span class="co"># habitat a até 2 células (~11 km) da faixa costeira recebe o valor dela</span></span>
-<span id="cb3-138"><a href="#cb3-138" tabindex="-1"></a></span>
-<span id="cb3-139"><a href="#cb3-139" tabindex="-1"></a><span class="co"># Processamento em paralelo no biomod2 (núcleos do processador).</span></span>
-<span id="cb3-140"><a href="#cb3-140" tabindex="-1"></a><span class="co"># Funciona em Linux e macOS (o computador do laboratório); no Windows o</span></span>
-<span id="cb3-141"><a href="#cb3-141" tabindex="-1"></a><span class="co"># biomod2 avisa e usa 1 núcleo. Padrão: todos os núcleos menos 1, até 8.</span></span>
-<span id="cb3-142"><a href="#cb3-142" tabindex="-1"></a><span class="co"># Até 4 núcleos: com 8, a memória do computador do laboratório (15 GB) chegou</span></span>
-<span id="cb3-143"><a href="#cb3-143" tabindex="-1"></a><span class="co"># a 1,3 GB livres na calibração e acabou nas projeções (24/10/2026).</span></span>
-<span id="cb3-144"><a href="#cb3-144" tabindex="-1"></a>NUCLEOS <span class="ot">&lt;-</span> <span class="fu">max</span>(<span class="dv">1</span>, <span class="fu">min</span>(<span class="dv">4</span>, parallel<span class="sc">::</span><span class="fu">detectCores</span>() <span class="sc">-</span> <span class="dv">1</span>))</span>
-<span id="cb3-145"><a href="#cb3-145" tabindex="-1"></a><span class="co"># Projeções no oceano inteiro (~470 mil células): cada núcleo do biomod2 leva</span></span>
-<span id="cb3-146"><a href="#cb3-146" tabindex="-1"></a><span class="co"># uma cópia dos dados, e com 8 núcleos a memória do computador do laboratório</span></span>
-<span id="cb3-147"><a href="#cb3-147" tabindex="-1"></a><span class="co"># acabou (24/10/2026). Menos núcleos = mais devagar, mas com memória segura.</span></span>
-<span id="cb3-148"><a href="#cb3-148" tabindex="-1"></a>NUCLEOS_OCEANO <span class="ot">&lt;-</span> <span class="fu">min</span>(NUCLEOS, <span class="dv">2</span>)</span>
-<span id="cb3-149"><a href="#cb3-149" tabindex="-1"></a></span>
-<span id="cb3-150"><a href="#cb3-150" tabindex="-1"></a><span class="co"># Mapas finais (ggplot, com rosa dos ventos, escala e legenda), para o TCC.</span></span>
-<span id="cb3-151"><a href="#cb3-151" tabindex="-1"></a><span class="co"># Paleta da adequabilidade: &quot;turbo&quot; (azul-marinho = baixa → vermelho escuro = alta),</span></span>
-<span id="cb3-152"><a href="#cb3-152" tabindex="-1"></a><span class="co"># a mesma dos mapas de raster no QGIS.</span></span>
-<span id="cb3-153"><a href="#cb3-153" tabindex="-1"></a>PALETA_MAPAS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;#30123B&quot;</span>, <span class="st">&quot;#455BCD&quot;</span>, <span class="st">&quot;#3E9BFE&quot;</span>, <span class="st">&quot;#18D6CB&quot;</span>, <span class="st">&quot;#46F884&quot;</span>, <span class="st">&quot;#A2FC3C&quot;</span>,</span>
-<span id="cb3-154"><a href="#cb3-154" tabindex="-1"></a>                  <span class="st">&quot;#E1DD37&quot;</span>, <span class="st">&quot;#FEA632&quot;</span>, <span class="st">&quot;#F05B12&quot;</span>, <span class="st">&quot;#C42503&quot;</span>, <span class="st">&quot;#7A0403&quot;</span>)  <span class="co"># = viridisLite::turbo(11)</span></span>
-<span id="cb3-155"><a href="#cb3-155" tabindex="-1"></a></span>
-<span id="cb3-156"><a href="#cb3-156" tabindex="-1"></a><span class="co"># Módulos opcionais</span></span>
-<span id="cb3-157"><a href="#cb3-157" tabindex="-1"></a>RODAR_TRANSFERENCIA <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb3-158"><a href="#cb3-158" tabindex="-1"></a>RODAR_CENARIOS_BR   <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb3-159"><a href="#cb3-159" tabindex="-1"></a>RODAR_RISCO         <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb3-160"><a href="#cb3-160" tabindex="-1"></a>RODAR_CLIMA         <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span></code></pre></div>
+<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a><span class="co"># Para refazer a análise com os dados já baixados (sem acessar GBIF, OBIS e</span></span>
+<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a><span class="co"># Bio-ORACLE), rode com a variável de ambiente TCC_SEM_DOWNLOAD=1, por exemplo:</span></span>
+<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a><span class="co">#   TCC_SEM_DOWNLOAD=1 Rscript Saccostrea_modelagem_TCC2.R</span></span>
+<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">nzchar</span>(<span class="fu">Sys.getenv</span>(<span class="st">&quot;TCC_SEM_DOWNLOAD&quot;</span>))) BAIXAR_GBIF <span class="ot">&lt;-</span> BAIXAR_OBIS <span class="ot">&lt;-</span> BAIXAR_BIOORACLE <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
+<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>FATOR_AGREGACAO  <span class="ot">&lt;-</span> <span class="dv">1</span>     <span class="co"># 1 = 0,05° (original); 2 = 0,1° (mais rápido para testes)</span></span>
+<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a><span class="co"># Ocorrências</span></span>
+<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a>INCERTEZA_MAX_M <span class="ot">&lt;-</span> <span class="dv">10000</span>  <span class="co"># descarta registros do GBIF e do OBIS com incerteza maior que 10 km</span></span>
+<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a>ANO_MIN         <span class="ot">&lt;-</span> <span class="dv">1950</span></span>
+<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a>DIST_AJUSTE_KM  <span class="ot">&lt;-</span> <span class="dv">15</span>     <span class="co"># registro em célula sem dado (estuário) é movido até 15 km</span></span>
+<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a>DIST_FILTRO_KM  <span class="ot">&lt;-</span> <span class="dv">10</span>     <span class="co"># distância mínima entre ocorrências</span></span>
+<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" tabindex="-1"></a><span class="co"># Área de calibração: faixa costeira</span></span>
+<span id="cb3-23"><a href="#cb3-23" tabindex="-1"></a>FAIXA_COSTEIRA_CEL <span class="ot">&lt;-</span> <span class="dv">6</span>   <span class="co"># 6 células × 0,05° ≈ 30 km a partir da linha de costa</span></span>
+<span id="cb3-24"><a href="#cb3-24" tabindex="-1"></a></span>
+<span id="cb3-25"><a href="#cb3-25" tabindex="-1"></a><span class="co"># Seleção de variáveis</span></span>
+<span id="cb3-26"><a href="#cb3-26" tabindex="-1"></a><span class="co"># Ordem = importância ecológica esperada para uma ostra de entremarés:</span></span>
+<span id="cb3-27"><a href="#cb3-27" tabindex="-1"></a><span class="co"># limites térmicos da água, salinidade mínima (estuário), temperatura do ar</span></span>
+<span id="cb3-28"><a href="#cb3-28" tabindex="-1"></a><span class="co"># (exposição na maré baixa), alimento, hidrodinâmica.</span></span>
+<span id="cb3-29"><a href="#cb3-29" tabindex="-1"></a><span class="co"># A temperatura do ar costuma ser muito correlacionada com a da água; se for,</span></span>
+<span id="cb3-30"><a href="#cb3-30" tabindex="-1"></a><span class="co"># fica a que vem primeiro nesta lista. Para priorizar o ar, coloque &quot;ar_max&quot;</span></span>
+<span id="cb3-31"><a href="#cb3-31" tabindex="-1"></a><span class="co"># e &quot;ar_min&quot; antes de &quot;sst_max&quot; e &quot;sst_min&quot;.</span></span>
+<span id="cb3-32"><a href="#cb3-32" tabindex="-1"></a><span class="co"># Ordem de prioridade (decisão de 24/10/2026): a temperatura mínima do ar vem</span></span>
+<span id="cb3-33"><a href="#cb3-33" tabindex="-1"></a><span class="co"># primeiro (a ostra é de entremarés e fica exposta ao ar na maré baixa; com o</span></span>
+<span id="cb3-34"><a href="#cb3-34" tabindex="-1"></a><span class="co"># preenchimento das baías, sua correlação com sst_max passou de 0,698 para</span></span>
+<span id="cb3-35"><a href="#cb3-35" tabindex="-1"></a><span class="co"># 0,712 e ela saía do modelo). A batimetria vem logo depois.</span></span>
+<span id="cb3-36"><a href="#cb3-36" tabindex="-1"></a>PRIORIDADE_VARIAVEIS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;ar_min&quot;</span>, <span class="st">&quot;batimetria&quot;</span>, <span class="st">&quot;sst_max&quot;</span>, <span class="st">&quot;sst_min&quot;</span>, <span class="st">&quot;sal_min&quot;</span>,</span>
+<span id="cb3-37"><a href="#cb3-37" tabindex="-1"></a>                          <span class="st">&quot;ar_max&quot;</span>, <span class="st">&quot;chl_log&quot;</span>, <span class="st">&quot;vel_mean&quot;</span>, <span class="st">&quot;sal_mean&quot;</span>, <span class="st">&quot;sst_mean&quot;</span>)</span>
+<span id="cb3-38"><a href="#cb3-38" tabindex="-1"></a>LIMIAR_CORRELACAO <span class="ot">&lt;-</span> <span class="fl">0.7</span></span>
+<span id="cb3-39"><a href="#cb3-39" tabindex="-1"></a>VIF_MAX           <span class="ot">&lt;-</span> <span class="dv">5</span></span>
+<span id="cb3-40"><a href="#cb3-40" tabindex="-1"></a></span>
+<span id="cb3-41"><a href="#cb3-41" tabindex="-1"></a><span class="co"># Modelagem</span></span>
+<span id="cb3-42"><a href="#cb3-42" tabindex="-1"></a>MODELOS          <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;GLM&quot;</span>, <span class="st">&quot;GBM&quot;</span>, <span class="st">&quot;RFd&quot;</span>, <span class="st">&quot;MAXNET&quot;</span>)  <span class="co"># RFd = Random Forest com sub-amostragem balanceada</span></span>
+<span id="cb3-43"><a href="#cb3-43" tabindex="-1"></a>METRICAS         <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;TSS&quot;</span>, <span class="st">&quot;AUCroc&quot;</span>, <span class="st">&quot;BOYCE&quot;</span>)</span>
+<span id="cb3-44"><a href="#cb3-44" tabindex="-1"></a>N_PA_REP         <span class="ot">&lt;-</span> <span class="dv">3</span>     <span class="co"># conjuntos de pseudo-ausências</span></span>
+<span id="cb3-45"><a href="#cb3-45" tabindex="-1"></a>N_PA_MIN         <span class="ot">&lt;-</span> <span class="dv">1000</span></span>
+<span id="cb3-46"><a href="#cb3-46" tabindex="-1"></a>PA_POR_PRESENCA  <span class="ot">&lt;-</span> <span class="dv">10</span>    <span class="co"># nº de pseudo-ausências = max(N_PA_MIN, 10 × nº de presenças)</span></span>
+<span id="cb3-47"><a href="#cb3-47" tabindex="-1"></a>K_BLOCOS         <span class="ot">&lt;-</span> <span class="dv">5</span>     <span class="co"># blocos espaciais do modelo global</span></span>
+<span id="cb3-48"><a href="#cb3-48" tabindex="-1"></a>TAM_BLOCO_GRAUS  <span class="ot">&lt;-</span> <span class="dv">5</span>     <span class="co"># lado de cada bloco (graus)</span></span>
+<span id="cb3-49"><a href="#cb3-49" tabindex="-1"></a>K_BLOCOS_BRASIL  <span class="ot">&lt;-</span> <span class="dv">4</span>     <span class="co"># faixas de latitude no modelo só do Brasil</span></span>
+<span id="cb3-50"><a href="#cb3-50" tabindex="-1"></a>TSS_MIN_ENSEMBLE <span class="ot">&lt;-</span> <span class="fl">0.6</span>   <span class="co"># modelos com TSS de validação abaixo disso ficam fora do ensemble</span></span>
+<span id="cb3-51"><a href="#cb3-51" tabindex="-1"></a></span>
+<span id="cb3-52"><a href="#cb3-52" tabindex="-1"></a><span class="co"># Área de projeção</span></span>
+<span id="cb3-53"><a href="#cb3-53" tabindex="-1"></a>BUFFER_BRASIL_KM <span class="ot">&lt;-</span> <span class="dv">150</span>   <span class="co"># inclui as ilhas oceânicas próximas da costa</span></span>
+<span id="cb3-54"><a href="#cb3-54" tabindex="-1"></a></span>
+<span id="cb3-55"><a href="#cb3-55" tabindex="-1"></a><span class="co"># Mapas do oceano inteiro (decisão de 24/10/2026): os mapas de adequabilidade,</span></span>
+<span id="cb3-56"><a href="#cb3-56" tabindex="-1"></a><span class="co"># incerteza, MESS e clima mostram o modelo projetado em todo o mar desta caixa.</span></span>
+<span id="cb3-57"><a href="#cb3-57" tabindex="-1"></a><span class="co"># As ESTATÍSTICAS (porcentagens, risco, infraestruturas, manguezais) continuam</span></span>
+<span id="cb3-58"><a href="#cb3-58" tabindex="-1"></a><span class="co"># só na faixa costeira, onde o modelo foi calibrado. Longe da costa o valor diz</span></span>
+<span id="cb3-59"><a href="#cb3-59" tabindex="-1"></a><span class="co"># apenas se a água de superfície seria adequada (relevante para plataformas).</span></span>
+<span id="cb3-60"><a href="#cb3-60" tabindex="-1"></a><span class="co"># Lagoas, baías fechadas e estuários sem dado no Bio-ORACLE (Lagoa dos Patos,</span></span>
+<span id="cb3-61"><a href="#cb3-61" tabindex="-1"></a><span class="co"># Guanabara, Paranaguá...) não podem ser modelados: ficam sem valor.</span></span>
+<span id="cb3-62"><a href="#cb3-62" tabindex="-1"></a>MAPA_OCEANO     <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
+<span id="cb3-63"><a href="#cb3-63" tabindex="-1"></a>EXTENSAO_OCEANO <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="sc">-</span><span class="dv">75</span>, <span class="sc">-</span><span class="dv">25</span>, <span class="sc">-</span><span class="dv">40</span>, <span class="dv">8</span>)   <span class="co"># lon mín, lon máx, lat mín, lat máx</span></span>
+<span id="cb3-64"><a href="#cb3-64" tabindex="-1"></a></span>
+<span id="cb3-65"><a href="#cb3-65" tabindex="-1"></a><span class="co"># Baías, estuários e lagoas (decisão de 24/10/2026). O Bio-ORACLE v3 não tem</span></span>
+<span id="cb3-66"><a href="#cb3-66" tabindex="-1"></a><span class="co"># dado em muitas baías e lagoas (Lagoa dos Patos, Mirim, Guanabara, Paranaguá,</span></span>
+<span id="cb3-67"><a href="#cb3-67" tabindex="-1"></a><span class="co"># Santos...). Com PREENCHER_BAIAS = TRUE, as camadas ambientais são estendidas</span></span>
+<span id="cb3-68"><a href="#cb3-68" tabindex="-1"></a><span class="co"># a partir das células de mar vizinhas para dentro dessas células de água</span></span>
+<span id="cb3-69"><a href="#cb3-69" tabindex="-1"></a><span class="co"># (linha de costa e lagoas do GSHHG). Vale para a calibração, a projeção e o</span></span>
+<span id="cb3-70"><a href="#cb3-70" tabindex="-1"></a><span class="co"># clima. São valores ESTIMADOS por extensão do mar: diga isso no texto (o</span></span>
+<span id="cb3-71"><a href="#cb3-71" tabindex="-1"></a><span class="co"># Bio-ORACLE v2, usado no PDPetro, fazia o mesmo tipo de extrapolação).</span></span>
+<span id="cb3-72"><a href="#cb3-72" tabindex="-1"></a>PREENCHER_BAIAS <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
+<span id="cb3-73"><a href="#cb3-73" tabindex="-1"></a>ARQ_GSHHG_TERRA <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;gshhg&quot;</span>, <span class="st">&quot;GSHHS_h_L1.shp&quot;</span>)  <span class="co"># costa</span></span>
+<span id="cb3-74"><a href="#cb3-74" tabindex="-1"></a>ARQ_GSHHG_LAGOS <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;gshhg&quot;</span>, <span class="st">&quot;GSHHS_h_L2.shp&quot;</span>)  <span class="co"># lagos e lagoas</span></span>
+<span id="cb3-75"><a href="#cb3-75" tabindex="-1"></a>LIMIAR_AGUA     <span class="ot">&lt;-</span> <span class="fl">0.3</span>    <span class="co"># fração mínima de água para a célula ser preenchida</span></span>
+<span id="cb3-76"><a href="#cb3-76" tabindex="-1"></a>DIST_MAX_BAIAS_KM <span class="ot">&lt;-</span> <span class="dv">100</span>  <span class="co"># só preenche água a até 100 km do mar com dado (não sobe rios)</span></span>
+<span id="cb3-77"><a href="#cb3-77" tabindex="-1"></a><span class="co"># Lagos e lagoas FECHADOS, sem ligação com o mar (nível 2 do GSHHG), ficam FORA</span></span>
+<span id="cb3-78"><a href="#cb3-78" tabindex="-1"></a><span class="co"># do preenchimento (decisão de 06/11/2026): são de água doce (Lagoa Mirim,</span></span>
+<span id="cb3-79"><a href="#cb3-79" tabindex="-1"></a><span class="co"># Mangueira, Itapeva, represas Billings e Guarapiranga, lagos do Marajó...) e</span></span>
+<span id="cb3-80"><a href="#cb3-80" tabindex="-1"></a><span class="co"># receberiam a salinidade do mar por extensão, o que contraria o limite de</span></span>
+<span id="cb3-81"><a href="#cb3-81" tabindex="-1"></a><span class="co"># salinidade da espécie (LIMITES_FISIOLOGICOS). Baías, estuários e lagoas ligadas</span></span>
+<span id="cb3-82"><a href="#cb3-82" tabindex="-1"></a><span class="co"># ao oceano (Patos, Peixe, Guanabara, Paranaguá, Todos os Santos, Mundaú...)</span></span>
+<span id="cb3-83"><a href="#cb3-83" tabindex="-1"></a><span class="co"># continuam preenchidas. Exceção: lagoas que o GSHHG trata como fechadas, mas</span></span>
+<span id="cb3-84"><a href="#cb3-84" tabindex="-1"></a><span class="co"># que se ligam ao mar por canais e são salgadas ou salobras (RJ).</span></span>
+<span id="cb3-85"><a href="#cb3-85" tabindex="-1"></a>INCLUIR_LAGOS_FECHADOS <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
+<span id="cb3-86"><a href="#cb3-86" tabindex="-1"></a>LAGOAS_LIGADAS_AO_MAR <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb3-87"><a href="#cb3-87" tabindex="-1"></a>  <span class="at">nome =</span> <span class="fu">c</span>(<span class="st">&quot;Araruama&quot;</span>, <span class="st">&quot;Saquarema&quot;</span>, <span class="st">&quot;Maricá&quot;</span>),</span>
+<span id="cb3-88"><a href="#cb3-88" tabindex="-1"></a>  <span class="at">lon  =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">42.20</span>, <span class="sc">-</span><span class="fl">42.53</span>, <span class="sc">-</span><span class="fl">42.84</span>),</span>
+<span id="cb3-89"><a href="#cb3-89" tabindex="-1"></a>  <span class="at">lat  =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">22.87</span>, <span class="sc">-</span><span class="fl">22.92</span>, <span class="sc">-</span><span class="fl">22.95</span>))</span>
+<span id="cb3-90"><a href="#cb3-90" tabindex="-1"></a><span class="co"># Lagoa dos Patos (decisão de 18/11/2026): só o ESTUÁRIO, ao sul da Ponta da</span></span>
+<span id="cb3-91"><a href="#cb3-91" tabindex="-1"></a><span class="co"># Feitoria (~31°41&#39; S), é preenchido. O resto da lagoa e o Guaíba são de água</span></span>
+<span id="cb3-92"><a href="#cb3-92" tabindex="-1"></a><span class="co"># doce na maior parte do ano (Seeliger et al., 1998) e, preenchidos a partir do</span></span>
+<span id="cb3-93"><a href="#cb3-93" tabindex="-1"></a><span class="co"># mar, apareciam como adequados (salinidade do mar por extensão). O polígono foi</span></span>
+<span id="cb3-94"><a href="#cb3-94" tabindex="-1"></a><span class="co"># tirado do GSHHG em resolução máxima (qgis/recorte_lagoa_dos_patos.py).</span></span>
+<span id="cb3-95"><a href="#cb3-95" tabindex="-1"></a><span class="co"># NULL = preencher a lagoa inteira, como na versão 4.</span></span>
+<span id="cb3-96"><a href="#cb3-96" tabindex="-1"></a>ARQ_AGUA_EXCLUIDA <span class="ot">&lt;-</span> <span class="fu">file.path</span>(PASTA_DADOS, <span class="st">&quot;limites&quot;</span>, <span class="st">&quot;lagoa_patos_sem_estuario.gpkg&quot;</span>)</span>
+<span id="cb3-97"><a href="#cb3-97" tabindex="-1"></a></span>
+<span id="cb3-98"><a href="#cb3-98" tabindex="-1"></a><span class="co"># Pressão e risco</span></span>
+<span id="cb3-99"><a href="#cb3-99" tabindex="-1"></a>DECAIMENTO_KM   <span class="ot">&lt;-</span> <span class="dv">50</span>     <span class="co"># a 50 km de uma infraestrutura, a pressão cai para 37 %</span></span>
+<span id="cb3-100"><a href="#cb3-100" tabindex="-1"></a>PESOS_PRESSAO   <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">portos =</span> <span class="dv">1</span>, <span class="at">plataformas =</span> <span class="dv">1</span>, <span class="at">pocos =</span> <span class="dv">1</span>)</span>
+<span id="cb3-101"><a href="#cb3-101" tabindex="-1"></a>BUFFER_INFRA_KM <span class="ot">&lt;-</span> <span class="dv">10</span>     <span class="co"># raio em volta de cada infraestrutura para ler a adequabilidade</span></span>
+<span id="cb3-102"><a href="#cb3-102" tabindex="-1"></a></span>
+<span id="cb3-103"><a href="#cb3-103" tabindex="-1"></a><span class="co"># Mapas das infraestruturas</span></span>
+<span id="cb3-104"><a href="#cb3-104" tabindex="-1"></a>DIST_REGISTRO_KM     <span class="ot">&lt;-</span> <span class="dv">50</span>       <span class="co"># &quot;perto de um registro conhecido&quot; = até 50 km</span></span>
+<span id="cb3-105"><a href="#cb3-105" tabindex="-1"></a>INFRA_COMO_DENSIDADE <span class="ot">&lt;-</span> <span class="st">&quot;pocos&quot;</span>  <span class="co"># tipos mostrados como densidade, e não como pontos</span></span>
+<span id="cb3-106"><a href="#cb3-106" tabindex="-1"></a>RES_DENSIDADE_GRAUS  <span class="ot">&lt;-</span> <span class="fl">0.25</span>     <span class="co"># célula do mapa de densidade (0,25° ≈ 28 km)</span></span>
+<span id="cb3-107"><a href="#cb3-107" tabindex="-1"></a></span>
+<span id="cb3-108"><a href="#cb3-108" tabindex="-1"></a><span class="co"># Recortes regionais ampliados (graus decimais)</span></span>
+<span id="cb3-109"><a href="#cb3-109" tabindex="-1"></a>REGIOES_ZOOM <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb3-110"><a href="#cb3-110" tabindex="-1"></a>  <span class="at">arquivo =</span> <span class="fu">c</span>(<span class="st">&quot;norte&quot;</span>, <span class="st">&quot;nordeste&quot;</span>, <span class="st">&quot;baia_todos_santos&quot;</span>, <span class="st">&quot;campos_santos&quot;</span>, <span class="st">&quot;sul&quot;</span>),</span>
+<span id="cb3-111"><a href="#cb3-111" tabindex="-1"></a>  <span class="at">titulo  =</span> <span class="fu">c</span>(<span class="st">&quot;Norte (AP–PA–MA)&quot;</span>, <span class="st">&quot;Nordeste setentrional (CE–PE)&quot;</span>,</span>
+<span id="cb3-112"><a href="#cb3-112" tabindex="-1"></a>              <span class="st">&quot;Baía de Todos os Santos (BA)&quot;</span>, <span class="st">&quot;Bacias de Campos e Santos (ES–RJ–SP)&quot;</span>,</span>
+<span id="cb3-113"><a href="#cb3-113" tabindex="-1"></a>              <span class="st">&quot;Sul (PR–SC)&quot;</span>),</span>
+<span id="cb3-114"><a href="#cb3-114" tabindex="-1"></a>  <span class="at">lon_min =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">51.0</span>, <span class="sc">-</span><span class="fl">41.0</span>, <span class="sc">-</span><span class="fl">39.6</span>, <span class="sc">-</span><span class="fl">48.5</span>, <span class="sc">-</span><span class="fl">49.2</span>),</span>
+<span id="cb3-115"><a href="#cb3-115" tabindex="-1"></a>  <span class="at">lon_max =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">41.0</span>, <span class="sc">-</span><span class="fl">34.5</span>, <span class="sc">-</span><span class="fl">37.6</span>, <span class="sc">-</span><span class="fl">39.0</span>, <span class="sc">-</span><span class="fl">47.3</span>),</span>
+<span id="cb3-116"><a href="#cb3-116" tabindex="-1"></a>  <span class="at">lat_min =</span> <span class="fu">c</span>( <span class="sc">-</span><span class="fl">3.5</span>,  <span class="sc">-</span><span class="fl">8.6</span>, <span class="sc">-</span><span class="fl">14.0</span>, <span class="sc">-</span><span class="fl">25.5</span>, <span class="sc">-</span><span class="fl">28.6</span>),</span>
+<span id="cb3-117"><a href="#cb3-117" tabindex="-1"></a>  <span class="at">lat_max =</span> <span class="fu">c</span>(  <span class="fl">4.5</span>,  <span class="sc">-</span><span class="fl">2.0</span>, <span class="sc">-</span><span class="fl">12.2</span>, <span class="sc">-</span><span class="fl">20.0</span>, <span class="sc">-</span><span class="fl">25.0</span>)</span>
+<span id="cb3-118"><a href="#cb3-118" tabindex="-1"></a>)</span>
+<span id="cb3-119"><a href="#cb3-119" tabindex="-1"></a></span>
+<span id="cb3-120"><a href="#cb3-120" tabindex="-1"></a><span class="co"># Limites fisiológicos para a validação qualitativa (Módulo 8).</span></span>
+<span id="cb3-121"><a href="#cb3-121" tabindex="-1"></a><span class="co"># Preencha com limites de tolerância de ADULTOS publicados na literatura e cite.</span></span>
+<span id="cb3-122"><a href="#cb3-122" tabindex="-1"></a><span class="co"># Atenção: Marcelino et al. (2023) testaram só larvas, entre 24–34 °C e</span></span>
+<span id="cb3-123"><a href="#cb3-123" tabindex="-1"></a><span class="co"># salinidade 30–40; isso não define os limites da espécie.</span></span>
+<span id="cb3-124"><a href="#cb3-124" tabindex="-1"></a><span class="co"># Deixe NA para pular.</span></span>
+<span id="cb3-125"><a href="#cb3-125" tabindex="-1"></a>LIMITES_FISIOLOGICOS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">sst_min =</span> <span class="fl">4.8</span>, <span class="at">sst_max =</span> <span class="dv">40</span>, <span class="at">sal_min =</span> <span class="dv">15</span>)</span>
+<span id="cb3-126"><a href="#cb3-126" tabindex="-1"></a></span>
+<span id="cb3-127"><a href="#cb3-127" tabindex="-1"></a><span class="co"># Mudanças climáticas (Módulo 13): o mesmo modelo é projetado nas camadas</span></span>
+<span id="cb3-128"><a href="#cb3-128" tabindex="-1"></a><span class="co"># futuras do Bio-ORACLE v3 (não há novo ajuste). Cenários disponíveis:</span></span>
+<span id="cb3-129"><a href="#cb3-129" tabindex="-1"></a><span class="co"># ssp119, ssp126, ssp245, ssp370, ssp460, ssp585. Décadas: 2020 a 2090.</span></span>
+<span id="cb3-130"><a href="#cb3-130" tabindex="-1"></a>CENARIOS_CLIMA <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;ssp245&quot;</span>, <span class="st">&quot;ssp585&quot;</span>)  <span class="co"># intermediário e pessimista</span></span>
+<span id="cb3-131"><a href="#cb3-131" tabindex="-1"></a>DECADAS_CLIMA  <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">2050</span>, <span class="dv">2090</span>)          <span class="co"># 2050 = média de 2050–2060; 2090 = 2090–2100</span></span>
+<span id="cb3-132"><a href="#cb3-132" tabindex="-1"></a></span>
+<span id="cb3-133"><a href="#cb3-133" tabindex="-1"></a><span class="co"># Ambientes de alta importância ecológica (Módulo 12.5): polígonos (.shp, .gpkg).</span></span>
+<span id="cb3-134"><a href="#cb3-134" tabindex="-1"></a><span class="co"># Manguezais: Atlas dos Manguezais do Brasil (ICMBio 2018), arquivo Mangues.shp.</span></span>
+<span id="cb3-135"><a href="#cb3-135" tabindex="-1"></a><span class="co"># Marismas: não há mapa nacional pronto (ver o guia de dados). Se não tiver, deixe</span></span>
+<span id="cb3-136"><a href="#cb3-136" tabindex="-1"></a><span class="co"># o arquivo de fora: o script segue sem ele.</span></span>
+<span id="cb3-137"><a href="#cb3-137" tabindex="-1"></a>ARQ_HABITATS <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb3-138"><a href="#cb3-138" tabindex="-1"></a>  <span class="at">manguezais =</span> <span class="fu">file.path</span>(PASTA_HAB, <span class="st">&quot;Mangues.shp&quot;</span>),</span>
+<span id="cb3-139"><a href="#cb3-139" tabindex="-1"></a>  <span class="at">marismas   =</span> <span class="fu">file.path</span>(PASTA_HAB, <span class="st">&quot;marismas.shp&quot;</span>)</span>
+<span id="cb3-140"><a href="#cb3-140" tabindex="-1"></a>)</span>
+<span id="cb3-141"><a href="#cb3-141" tabindex="-1"></a>RAIO_HABITAT_CEL <span class="ot">&lt;-</span> <span class="dv">2</span>  <span class="co"># habitat a até 2 células (~11 km) da faixa costeira recebe o valor dela</span></span>
+<span id="cb3-142"><a href="#cb3-142" tabindex="-1"></a></span>
+<span id="cb3-143"><a href="#cb3-143" tabindex="-1"></a><span class="co"># Processamento em paralelo no biomod2 (núcleos do processador).</span></span>
+<span id="cb3-144"><a href="#cb3-144" tabindex="-1"></a><span class="co"># Funciona em Linux e macOS (o computador do laboratório); no Windows o</span></span>
+<span id="cb3-145"><a href="#cb3-145" tabindex="-1"></a><span class="co"># biomod2 avisa e usa 1 núcleo. Padrão: todos os núcleos menos 1, até 8.</span></span>
+<span id="cb3-146"><a href="#cb3-146" tabindex="-1"></a><span class="co"># Até 4 núcleos: com 8, a memória do computador do laboratório (15 GB) chegou</span></span>
+<span id="cb3-147"><a href="#cb3-147" tabindex="-1"></a><span class="co"># a 1,3 GB livres na calibração e acabou nas projeções (24/10/2026).</span></span>
+<span id="cb3-148"><a href="#cb3-148" tabindex="-1"></a>NUCLEOS <span class="ot">&lt;-</span> <span class="fu">max</span>(<span class="dv">1</span>, <span class="fu">min</span>(<span class="dv">4</span>, parallel<span class="sc">::</span><span class="fu">detectCores</span>() <span class="sc">-</span> <span class="dv">1</span>))</span>
+<span id="cb3-149"><a href="#cb3-149" tabindex="-1"></a><span class="co"># Projeções no oceano inteiro (~470 mil células): cada núcleo do biomod2 leva</span></span>
+<span id="cb3-150"><a href="#cb3-150" tabindex="-1"></a><span class="co"># uma cópia dos dados, e com 8 núcleos a memória do computador do laboratório</span></span>
+<span id="cb3-151"><a href="#cb3-151" tabindex="-1"></a><span class="co"># acabou (24/10/2026). Menos núcleos = mais devagar, mas com memória segura.</span></span>
+<span id="cb3-152"><a href="#cb3-152" tabindex="-1"></a>NUCLEOS_OCEANO <span class="ot">&lt;-</span> <span class="fu">min</span>(NUCLEOS, <span class="dv">2</span>)</span>
+<span id="cb3-153"><a href="#cb3-153" tabindex="-1"></a></span>
+<span id="cb3-154"><a href="#cb3-154" tabindex="-1"></a><span class="co"># Mapas finais (ggplot, com rosa dos ventos, escala e legenda), para o TCC.</span></span>
+<span id="cb3-155"><a href="#cb3-155" tabindex="-1"></a><span class="co"># Paleta da adequabilidade: &quot;turbo&quot; (azul-marinho = baixa → vermelho escuro = alta),</span></span>
+<span id="cb3-156"><a href="#cb3-156" tabindex="-1"></a><span class="co"># a mesma dos mapas de raster no QGIS.</span></span>
+<span id="cb3-157"><a href="#cb3-157" tabindex="-1"></a>PALETA_MAPAS <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;#30123B&quot;</span>, <span class="st">&quot;#455BCD&quot;</span>, <span class="st">&quot;#3E9BFE&quot;</span>, <span class="st">&quot;#18D6CB&quot;</span>, <span class="st">&quot;#46F884&quot;</span>, <span class="st">&quot;#A2FC3C&quot;</span>,</span>
+<span id="cb3-158"><a href="#cb3-158" tabindex="-1"></a>                  <span class="st">&quot;#E1DD37&quot;</span>, <span class="st">&quot;#FEA632&quot;</span>, <span class="st">&quot;#F05B12&quot;</span>, <span class="st">&quot;#C42503&quot;</span>, <span class="st">&quot;#7A0403&quot;</span>)  <span class="co"># = viridisLite::turbo(11)</span></span>
+<span id="cb3-159"><a href="#cb3-159" tabindex="-1"></a></span>
+<span id="cb3-160"><a href="#cb3-160" tabindex="-1"></a><span class="co"># Módulos opcionais</span></span>
+<span id="cb3-161"><a href="#cb3-161" tabindex="-1"></a>RODAR_TRANSFERENCIA <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
+<span id="cb3-162"><a href="#cb3-162" tabindex="-1"></a>RODAR_CENARIOS_BR   <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
+<span id="cb3-163"><a href="#cb3-163" tabindex="-1"></a>RODAR_RISCO         <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
+<span id="cb3-164"><a href="#cb3-164" tabindex="-1"></a>RODAR_CLIMA         <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span></code></pre></div>
 </div>
 <div id="pacotes" class="section level3">
 <h3>0.4 – Pacotes</h3>
@@ -2074,38 +2088,47 @@ desenhar os mapas.</p>
 <span id="cb7-69"><a href="#cb7-69" tabindex="-1"></a>  <span class="cf">if</span> (<span class="st">&quot;TERRA_MAR&quot;</span> <span class="sc">%in%</span> <span class="fu">names</span>(df)) {</span>
 <span id="cb7-70"><a href="#cb7-70" tabindex="-1"></a>    df <span class="ot">&lt;-</span> df[df<span class="sc">$</span>TERRA_MAR <span class="sc">%in%</span> <span class="st">&quot;M&quot;</span>, ]</span>
 <span id="cb7-71"><a href="#cb7-71" tabindex="-1"></a>  }</span>
-<span id="cb7-72"><a href="#cb7-72" tabindex="-1"></a></span>
-<span id="cb7-73"><a href="#cb7-73" tabindex="-1"></a>  col_lon <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;lon_dd&quot;</span>, <span class="st">&quot;longitude&quot;</span>, <span class="st">&quot;lon&quot;</span>, <span class="st">&quot;decimalLongitude&quot;</span>,</span>
-<span id="cb7-74"><a href="#cb7-74" tabindex="-1"></a>                                <span class="st">&quot;LONGITUDE_BASE_DD&quot;</span>, <span class="st">&quot;x&quot;</span>))</span>
-<span id="cb7-75"><a href="#cb7-75" tabindex="-1"></a>  col_lat <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;lat_dd&quot;</span>, <span class="st">&quot;latitude&quot;</span>, <span class="st">&quot;lat&quot;</span>, <span class="st">&quot;decimalLatitude&quot;</span>,</span>
-<span id="cb7-76"><a href="#cb7-76" tabindex="-1"></a>                                <span class="st">&quot;LATITUDE_BASE_DD&quot;</span>, <span class="st">&quot;y&quot;</span>))</span>
-<span id="cb7-77"><a href="#cb7-77" tabindex="-1"></a>  col_pais <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;pais&quot;</span>, <span class="st">&quot;countryCode&quot;</span>, <span class="st">&quot;country&quot;</span>), <span class="at">obrigatoria =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb7-78"><a href="#cb7-78" tabindex="-1"></a>  col_subs <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;substrato&quot;</span>, <span class="st">&quot;subs_tipo&quot;</span>, <span class="st">&quot;tipo_substrato&quot;</span>, <span class="st">&quot;substrate&quot;</span>),</span>
-<span id="cb7-79"><a href="#cb7-79" tabindex="-1"></a>                           <span class="at">obrigatoria =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb7-80"><a href="#cb7-80" tabindex="-1"></a></span>
-<span id="cb7-81"><a href="#cb7-81" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
-<span id="cb7-82"><a href="#cb7-82" tabindex="-1"></a>    <span class="at">id    =</span> <span class="fu">paste0</span>(fonte, <span class="st">&quot;_&quot;</span>, <span class="fu">seq_len</span>(<span class="fu">nrow</span>(df))),</span>
-<span id="cb7-83"><a href="#cb7-83" tabindex="-1"></a>    <span class="at">fonte =</span> fonte,</span>
-<span id="cb7-84"><a href="#cb7-84" tabindex="-1"></a>    <span class="at">lon   =</span> <span class="fu">para_numero</span>(df[[col_lon]]),</span>
-<span id="cb7-85"><a href="#cb7-85" tabindex="-1"></a>    <span class="at">lat   =</span> <span class="fu">para_numero</span>(df[[col_lat]]),</span>
-<span id="cb7-86"><a href="#cb7-86" tabindex="-1"></a>    <span class="at">pais  =</span> <span class="cf">if</span> (<span class="fu">is.na</span>(col_pais)) <span class="cn">NA_character_</span> <span class="cf">else</span> <span class="fu">as.character</span>(df[[col_pais]]),</span>
-<span id="cb7-87"><a href="#cb7-87" tabindex="-1"></a>    <span class="at">ano   =</span> <span class="cn">NA_integer_</span>,</span>
-<span id="cb7-88"><a href="#cb7-88" tabindex="-1"></a>    <span class="at">substrato =</span> <span class="cf">if</span> (<span class="fu">is.na</span>(col_subs)) <span class="cn">NA_character_</span> <span class="cf">else</span> <span class="fu">as.character</span>(df[[col_subs]]),</span>
-<span id="cb7-89"><a href="#cb7-89" tabindex="-1"></a>    <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span></span>
-<span id="cb7-90"><a href="#cb7-90" tabindex="-1"></a>  )</span>
-<span id="cb7-91"><a href="#cb7-91" tabindex="-1"></a>}</span>
-<span id="cb7-92"><a href="#cb7-92" tabindex="-1"></a></span>
-<span id="cb7-93"><a href="#cb7-93" tabindex="-1"></a><span class="co"># Agrupa o substrato anotado em &quot;artificial&quot; ou &quot;natural&quot;. Aceita tanto a</span></span>
-<span id="cb7-94"><a href="#cb7-94" tabindex="-1"></a><span class="co"># classe pronta quanto a descrição (ex.: &quot;marina&quot;, &quot;raiz de mangue&quot;, &quot;costão&quot;).</span></span>
-<span id="cb7-95"><a href="#cb7-95" tabindex="-1"></a>classificar_substrato <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
-<span id="cb7-96"><a href="#cb7-96" tabindex="-1"></a>  x <span class="ot">&lt;-</span> <span class="fu">tolower</span>(<span class="fu">chartr</span>(<span class="st">&quot;áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ&quot;</span>,</span>
-<span id="cb7-97"><a href="#cb7-97" tabindex="-1"></a>                      <span class="st">&quot;aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC&quot;</span>, x))</span>
-<span id="cb7-98"><a href="#cb7-98" tabindex="-1"></a>  artificial <span class="ot">&lt;-</span> <span class="st">&quot;artific|porto|marina|pier|cais|molhe|quebra|estaleiro|boia|plataforma|casco|pilar|concreto|muro|ponte|trapiche|atracadouro&quot;</span></span>
-<span id="cb7-99"><a href="#cb7-99" tabindex="-1"></a>  natural <span class="ot">&lt;-</span> <span class="st">&quot;natural|costao|rocha|rochoso|matac|mangue|raiz|praia|recife|seixo|cascalho&quot;</span></span>
-<span id="cb7-100"><a href="#cb7-100" tabindex="-1"></a>  <span class="fu">ifelse</span>(<span class="fu">is.na</span>(x) <span class="sc">|</span> x <span class="sc">==</span> <span class="st">&quot;&quot;</span>, <span class="cn">NA_character_</span>,</span>
-<span id="cb7-101"><a href="#cb7-101" tabindex="-1"></a>         <span class="fu">ifelse</span>(<span class="fu">grepl</span>(artificial, x), <span class="st">&quot;artificial&quot;</span>,</span>
-<span id="cb7-102"><a href="#cb7-102" tabindex="-1"></a>                <span class="fu">ifelse</span>(<span class="fu">grepl</span>(natural, x), <span class="st">&quot;natural&quot;</span>, <span class="st">&quot;outro&quot;</span>)))</span>
-<span id="cb7-103"><a href="#cb7-103" tabindex="-1"></a>}</span></code></pre></div>
+<span id="cb7-72"><a href="#cb7-72" tabindex="-1"></a>  <span class="co"># ... e só com os poços ativos (SITUACOES_POCOS_ATIVOS, Módulo 0)</span></span>
+<span id="cb7-73"><a href="#cb7-73" tabindex="-1"></a>  <span class="cf">if</span> (<span class="st">&quot;SITUACAO&quot;</span> <span class="sc">%in%</span> <span class="fu">names</span>(df) <span class="sc">&amp;&amp;</span> <span class="fu">length</span>(SITUACOES_POCOS_ATIVOS) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb7-74"><a href="#cb7-74" tabindex="-1"></a>    sem_acento <span class="ot">&lt;-</span> <span class="cf">function</span>(x) <span class="fu">toupper</span>(<span class="fu">trimws</span>(<span class="fu">chartr</span>(<span class="st">&quot;ÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç&quot;</span>,</span>
+<span id="cb7-75"><a href="#cb7-75" tabindex="-1"></a>                                                    <span class="st">&quot;AAAAEEIOOOUCaaaaeeiooouc&quot;</span>, x)))</span>
+<span id="cb7-76"><a href="#cb7-76" tabindex="-1"></a>    ativo <span class="ot">&lt;-</span> <span class="fu">sem_acento</span>(df<span class="sc">$</span>SITUACAO) <span class="sc">%in%</span> <span class="fu">sem_acento</span>(SITUACOES_POCOS_ATIVOS)</span>
+<span id="cb7-77"><a href="#cb7-77" tabindex="-1"></a>    <span class="fu">message</span>(<span class="st">&quot;poços: &quot;</span>, <span class="fu">sum</span>(ativo), <span class="st">&quot; ativos de &quot;</span>, <span class="fu">nrow</span>(df), <span class="st">&quot; no mar; os demais &quot;</span>,</span>
+<span id="cb7-78"><a href="#cb7-78" tabindex="-1"></a>            <span class="st">&quot;(abandonados, arrasados, fechados...) saem da análise.&quot;</span>)</span>
+<span id="cb7-79"><a href="#cb7-79" tabindex="-1"></a>    df <span class="ot">&lt;-</span> df[ativo, ]</span>
+<span id="cb7-80"><a href="#cb7-80" tabindex="-1"></a>  }</span>
+<span id="cb7-81"><a href="#cb7-81" tabindex="-1"></a></span>
+<span id="cb7-82"><a href="#cb7-82" tabindex="-1"></a>  col_lon <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;lon_dd&quot;</span>, <span class="st">&quot;longitude&quot;</span>, <span class="st">&quot;lon&quot;</span>, <span class="st">&quot;decimalLongitude&quot;</span>,</span>
+<span id="cb7-83"><a href="#cb7-83" tabindex="-1"></a>                                <span class="st">&quot;LONGITUDE_BASE_DD&quot;</span>, <span class="st">&quot;x&quot;</span>))</span>
+<span id="cb7-84"><a href="#cb7-84" tabindex="-1"></a>  col_lat <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;lat_dd&quot;</span>, <span class="st">&quot;latitude&quot;</span>, <span class="st">&quot;lat&quot;</span>, <span class="st">&quot;decimalLatitude&quot;</span>,</span>
+<span id="cb7-85"><a href="#cb7-85" tabindex="-1"></a>                                <span class="st">&quot;LATITUDE_BASE_DD&quot;</span>, <span class="st">&quot;y&quot;</span>))</span>
+<span id="cb7-86"><a href="#cb7-86" tabindex="-1"></a>  col_pais <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;pais&quot;</span>, <span class="st">&quot;countryCode&quot;</span>, <span class="st">&quot;country&quot;</span>), <span class="at">obrigatoria =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb7-87"><a href="#cb7-87" tabindex="-1"></a>  col_subs <span class="ot">&lt;-</span> <span class="fu">achar_coluna</span>(df, <span class="fu">c</span>(<span class="st">&quot;substrato&quot;</span>, <span class="st">&quot;subs_tipo&quot;</span>, <span class="st">&quot;tipo_substrato&quot;</span>, <span class="st">&quot;substrate&quot;</span>),</span>
+<span id="cb7-88"><a href="#cb7-88" tabindex="-1"></a>                           <span class="at">obrigatoria =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb7-89"><a href="#cb7-89" tabindex="-1"></a></span>
+<span id="cb7-90"><a href="#cb7-90" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
+<span id="cb7-91"><a href="#cb7-91" tabindex="-1"></a>    <span class="at">id    =</span> <span class="fu">paste0</span>(fonte, <span class="st">&quot;_&quot;</span>, <span class="fu">seq_len</span>(<span class="fu">nrow</span>(df))),</span>
+<span id="cb7-92"><a href="#cb7-92" tabindex="-1"></a>    <span class="at">fonte =</span> fonte,</span>
+<span id="cb7-93"><a href="#cb7-93" tabindex="-1"></a>    <span class="at">lon   =</span> <span class="fu">para_numero</span>(df[[col_lon]]),</span>
+<span id="cb7-94"><a href="#cb7-94" tabindex="-1"></a>    <span class="at">lat   =</span> <span class="fu">para_numero</span>(df[[col_lat]]),</span>
+<span id="cb7-95"><a href="#cb7-95" tabindex="-1"></a>    <span class="at">pais  =</span> <span class="cf">if</span> (<span class="fu">is.na</span>(col_pais)) <span class="cn">NA_character_</span> <span class="cf">else</span> <span class="fu">as.character</span>(df[[col_pais]]),</span>
+<span id="cb7-96"><a href="#cb7-96" tabindex="-1"></a>    <span class="at">ano   =</span> <span class="cn">NA_integer_</span>,</span>
+<span id="cb7-97"><a href="#cb7-97" tabindex="-1"></a>    <span class="at">substrato =</span> <span class="cf">if</span> (<span class="fu">is.na</span>(col_subs)) <span class="cn">NA_character_</span> <span class="cf">else</span> <span class="fu">as.character</span>(df[[col_subs]]),</span>
+<span id="cb7-98"><a href="#cb7-98" tabindex="-1"></a>    <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span></span>
+<span id="cb7-99"><a href="#cb7-99" tabindex="-1"></a>  )</span>
+<span id="cb7-100"><a href="#cb7-100" tabindex="-1"></a>}</span>
+<span id="cb7-101"><a href="#cb7-101" tabindex="-1"></a></span>
+<span id="cb7-102"><a href="#cb7-102" tabindex="-1"></a><span class="co"># Agrupa o substrato anotado em &quot;artificial&quot; ou &quot;natural&quot;. Aceita tanto a</span></span>
+<span id="cb7-103"><a href="#cb7-103" tabindex="-1"></a><span class="co"># classe pronta quanto a descrição (ex.: &quot;marina&quot;, &quot;raiz de mangue&quot;, &quot;costão&quot;).</span></span>
+<span id="cb7-104"><a href="#cb7-104" tabindex="-1"></a>classificar_substrato <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
+<span id="cb7-105"><a href="#cb7-105" tabindex="-1"></a>  x <span class="ot">&lt;-</span> <span class="fu">tolower</span>(<span class="fu">chartr</span>(<span class="st">&quot;áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ&quot;</span>,</span>
+<span id="cb7-106"><a href="#cb7-106" tabindex="-1"></a>                      <span class="st">&quot;aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC&quot;</span>, x))</span>
+<span id="cb7-107"><a href="#cb7-107" tabindex="-1"></a>  artificial <span class="ot">&lt;-</span> <span class="st">&quot;artific|porto|marina|pier|cais|molhe|quebra|estaleiro|boia|plataforma|casco|pilar|concreto|muro|ponte|trapiche|atracadouro&quot;</span></span>
+<span id="cb7-108"><a href="#cb7-108" tabindex="-1"></a>  natural <span class="ot">&lt;-</span> <span class="st">&quot;natural|costao|rocha|rochoso|matac|mangue|raiz|praia|recife|seixo|cascalho&quot;</span></span>
+<span id="cb7-109"><a href="#cb7-109" tabindex="-1"></a>  <span class="fu">ifelse</span>(<span class="fu">is.na</span>(x) <span class="sc">|</span> x <span class="sc">==</span> <span class="st">&quot;&quot;</span>, <span class="cn">NA_character_</span>,</span>
+<span id="cb7-110"><a href="#cb7-110" tabindex="-1"></a>         <span class="fu">ifelse</span>(<span class="fu">grepl</span>(artificial, x), <span class="st">&quot;artificial&quot;</span>,</span>
+<span id="cb7-111"><a href="#cb7-111" tabindex="-1"></a>                <span class="fu">ifelse</span>(<span class="fu">grepl</span>(natural, x), <span class="st">&quot;natural&quot;</span>, <span class="st">&quot;outro&quot;</span>)))</span>
+<span id="cb7-112"><a href="#cb7-112" tabindex="-1"></a>}</span></code></pre></div>
 </div>
 <div id="downloads-gbif-e-bio-oracle" class="section level3">
 <h3>1.2 – Downloads (GBIF e Bio-ORACLE)</h3>
@@ -3895,7 +3918,7 @@ adequada e índice de Boyce).</p>
 <h2>12. Módulo 10 – Os três cenários do TCC 1</h2>
 <p>Os três cenários propostos no TCC 1, calibrados só com os registros
 do Brasil, para comparação: (I) variáveis ambientais, (II) distâncias a
-portos, plataformas e poços e (III) os dois conjuntos.</p>
+portos, plataformas e poços ativos e (III) os dois conjuntos.</p>
 <div class="sourceCode" id="cb24"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" tabindex="-1"></a><span class="co"># (I) só ambientais, (II) só antrópicas, (III) ambientais + antrópicas.</span></span>
 <span id="cb24-2"><a href="#cb24-2" tabindex="-1"></a><span class="co"># Calibrado só com os registros brasileiros e na faixa costeira brasileira.</span></span>
 <span id="cb24-3"><a href="#cb24-3" tabindex="-1"></a><span class="co">#</span></span>

@@ -23,7 +23,7 @@ Esta página apresenta o código usado no trabalho **"Análise do risco de intro
 A análise tem três partes:
 
 1. **Adequabilidade ambiental (A):** o quanto o ambiente permite que a ostra viva em cada ponto da costa. É estimada por um modelo de distribuição de espécies calibrado com registros de todo o mundo (área nativa e áreas invadidas), porque no Brasil a espécie ainda está se espalhando e os registros daqui mostram onde ela já chegou, e não todos os lugares onde poderia viver. Só variáveis ambientais entram nessa parte.
-2. **Pressão antrópica (P):** o quanto portos, plataformas e poços de petróleo e gás podem trazer larvas e adultos incrustados (água de lastro, cascos e estruturas).
+2. **Pressão antrópica (P):** o quanto portos, plataformas e poços ativos de petróleo e gás podem trazer larvas e adultos incrustados (água de lastro, cascos e estruturas).
 3. **Risco de introdução:** R = A × P.
 
 Todo o processamento foi feito em um único script em R ([`Saccostrea_modelagem_TCC2.R`](https://github.com/ketlenps/risco-saccostrea-brasil-tcc/blob/main/Saccostrea_modelagem_TCC2.R)), organizado em módulos, e algumas análises complementares foram feitas depois, em Python, com o QGIS. O código é apresentado abaixo na ordem em que é executado. Os dados de entrada não estão incluídos; as fontes estão no [README do repositório](https://github.com/ketlenps/risco-saccostrea-brasil-tcc).
@@ -100,7 +100,8 @@ ARQ_EXCLUIR <- file.path(PASTA_OCORR, "registros_excluir.csv")
 # espacial (.shp, .gpkg, .kml). Pode usar direto os arquivos oficiais:
 #   portos      → shapefile "Instalações Portuárias Outorgadas" da ANTAQ
 #   plataformas → dados-abertos-plataformas-operacao.csv da ANP
-#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = "M")
+#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = "M" e
+#                 com os poços ativos, ver SITUACOES_POCOS_ATIVOS)
 # Pontos em terra longe da costa (portos fluviais) são descartados antes do Módulo 10.
 # Para cada tipo, o script usa o PRIMEIRO arquivo da lista que existir na pasta.
 # Prefira nomes sem acento (ex.: pocos_finall.csv): acentos em nomes de arquivo
@@ -119,6 +120,15 @@ ARQ_INFRA <- c(
                                    file.path(PASTA_ANTR, "poços_finall.csv"),
                                    file.path(PASTA_ANTR, "tabela-pocos.csv"))
 )
+
+# Poços: só os ativos (decisão de 26/11/2026). Os abandonados, arrasados e fechados
+# (cerca de 90% dos poços marítimos da ANP) não recebem mais navios-sonda nem embarcações
+# de apoio, que são o que justifica os poços como fonte de pressão. Vale para a
+# coluna SITUACAO da tabela-pocos.csv; com vetor vazio, entram todos os poços.
+SITUACOES_POCOS_ATIVOS <- c("PRODUZINDO", "INJETANDO", "EM PERFURAÇÃO", "EM COMPLETAÇÃO",
+                            "EM INTERVENÇÃO", "EM AVALIAÇÃO", "EM OBSERVAÇÃO",
+                            "EQUIPADO AGUARDANDO INÍCIO DE OPERAÇÃO",
+                            "OPERANDO PARA CAPTAÇÃO DE ÁGUA")
 
 # Polígonos dos campos de produção da ANP (opcional). Só aparecem nos mapas.
 ARQ_CAMPOS <- file.path(PASTA_ANTR, "campos_producao.shp")
@@ -140,6 +150,10 @@ SEMENTE <- 123
 BAIXAR_GBIF      <- TRUE  # FALSE = usa o gbif_bruto.csv já baixado
 BAIXAR_OBIS      <- TRUE  # FALSE = usa o obis_bruto.csv já baixado
 BAIXAR_BIOORACLE <- TRUE  # FALSE = usa os .tif já salvos em dados/ambientais
+# Para refazer a análise com os dados já baixados (sem acessar GBIF, OBIS e
+# Bio-ORACLE), rode com a variável de ambiente TCC_SEM_DOWNLOAD=1, por exemplo:
+#   TCC_SEM_DOWNLOAD=1 Rscript Saccostrea_modelagem_TCC2.R
+if (nzchar(Sys.getenv("TCC_SEM_DOWNLOAD"))) BAIXAR_GBIF <- BAIXAR_OBIS <- BAIXAR_BIOORACLE <- FALSE
 FATOR_AGREGACAO  <- 1     # 1 = 0,05° (original); 2 = 0,1° (mais rápido para testes)
 
 # Ocorrências
@@ -501,6 +515,15 @@ ler_coordenadas <- function(arquivo, fonte) {
   # Tabela de poços da ANP: fica só com os poços no mar (TERRA_MAR = "M")
   if ("TERRA_MAR" %in% names(df)) {
     df <- df[df$TERRA_MAR %in% "M", ]
+  }
+  # ... e só com os poços ativos (SITUACOES_POCOS_ATIVOS, Módulo 0)
+  if ("SITUACAO" %in% names(df) && length(SITUACOES_POCOS_ATIVOS) > 0) {
+    sem_acento <- function(x) toupper(trimws(chartr("ÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç",
+                                                    "AAAAEEIOOOUCaaaaeeiooouc", x)))
+    ativo <- sem_acento(df$SITUACAO) %in% sem_acento(SITUACOES_POCOS_ATIVOS)
+    message("poços: ", sum(ativo), " ativos de ", nrow(df), " no mar; os demais ",
+            "(abandonados, arrasados, fechados...) saem da análise.")
+    df <- df[ativo, ]
   }
 
   col_lon <- achar_coluna(df, c("lon_dd", "longitude", "lon", "decimalLongitude",
@@ -2334,7 +2357,7 @@ mapas_de_contexto()
 
 ## 12. Módulo 10 – Os três cenários do TCC 1
 
-Os três cenários propostos no TCC 1, calibrados só com os registros do Brasil, para comparação: (I) variáveis ambientais, (II) distâncias a portos, plataformas e poços e (III) os dois conjuntos.
+Os três cenários propostos no TCC 1, calibrados só com os registros do Brasil, para comparação: (I) variáveis ambientais, (II) distâncias a portos, plataformas e poços ativos e (III) os dois conjuntos.
 
 ```{r}
 # (I) só ambientais, (II) só antrópicas, (III) ambientais + antrópicas.

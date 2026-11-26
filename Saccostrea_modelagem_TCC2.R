@@ -124,7 +124,8 @@ ARQ_EXCLUIR <- file.path(PASTA_OCORR, "registros_excluir.csv")
 # espacial (.shp, .gpkg, .kml). Pode usar direto os arquivos oficiais:
 #   portos      → shapefile "Instalações Portuárias Outorgadas" da ANTAQ
 #   plataformas → dados-abertos-plataformas-operacao.csv da ANP
-#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = "M")
+#   pocos       → tabela-pocos.csv da ANP (o script fica só com TERRA_MAR = "M" e
+#                 com os poços ativos, ver SITUACOES_POCOS_ATIVOS)
 # Pontos em terra longe da costa (portos fluviais) são descartados antes do Módulo 10.
 # Para cada tipo, o script usa o PRIMEIRO arquivo da lista que existir na pasta.
 # Prefira nomes sem acento (ex.: pocos_finall.csv): acentos em nomes de arquivo
@@ -143,6 +144,15 @@ ARQ_INFRA <- c(
                                    file.path(PASTA_ANTR, "poços_finall.csv"),
                                    file.path(PASTA_ANTR, "tabela-pocos.csv"))
 )
+
+# Poços: só os ativos (decisão de 26/11/2026). Os abandonados, arrasados e fechados
+# (cerca de 90% dos poços marítimos da ANP) não recebem mais navios-sonda nem embarcações
+# de apoio, que são o que justifica os poços como fonte de pressão. Vale para a
+# coluna SITUACAO da tabela-pocos.csv; com vetor vazio, entram todos os poços.
+SITUACOES_POCOS_ATIVOS <- c("PRODUZINDO", "INJETANDO", "EM PERFURAÇÃO", "EM COMPLETAÇÃO",
+                            "EM INTERVENÇÃO", "EM AVALIAÇÃO", "EM OBSERVAÇÃO",
+                            "EQUIPADO AGUARDANDO INÍCIO DE OPERAÇÃO",
+                            "OPERANDO PARA CAPTAÇÃO DE ÁGUA")
 
 # Polígonos dos campos de produção da ANP (opcional). Só aparecem nos mapas.
 ARQ_CAMPOS <- file.path(PASTA_ANTR, "campos_producao.shp")
@@ -165,6 +175,10 @@ SEMENTE <- 123
 BAIXAR_GBIF      <- TRUE  # FALSE = usa o gbif_bruto.csv já baixado
 BAIXAR_OBIS      <- TRUE  # FALSE = usa o obis_bruto.csv já baixado
 BAIXAR_BIOORACLE <- TRUE  # FALSE = usa os .tif já salvos em dados/ambientais
+# Para refazer a análise com os dados já baixados (sem acessar GBIF, OBIS e
+# Bio-ORACLE), rode com a variável de ambiente TCC_SEM_DOWNLOAD=1, por exemplo:
+#   TCC_SEM_DOWNLOAD=1 Rscript Saccostrea_modelagem_TCC2.R
+if (nzchar(Sys.getenv("TCC_SEM_DOWNLOAD"))) BAIXAR_GBIF <- BAIXAR_OBIS <- BAIXAR_BIOORACLE <- FALSE
 FATOR_AGREGACAO  <- 1     # 1 = 0,05° (original); 2 = 0,1° (mais rápido para testes)
 
 # Ocorrências
@@ -528,6 +542,15 @@ ler_coordenadas <- function(arquivo, fonte) {
   # Tabela de poços da ANP: fica só com os poços no mar (TERRA_MAR = "M")
   if ("TERRA_MAR" %in% names(df)) {
     df <- df[df$TERRA_MAR %in% "M", ]
+  }
+  # ... e só com os poços ativos (SITUACOES_POCOS_ATIVOS, Módulo 0)
+  if ("SITUACAO" %in% names(df) && length(SITUACOES_POCOS_ATIVOS) > 0) {
+    sem_acento <- function(x) toupper(trimws(chartr("ÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç",
+                                                    "AAAAEEIOOOUCaaaaeeiooouc", x)))
+    ativo <- sem_acento(df$SITUACAO) %in% sem_acento(SITUACOES_POCOS_ATIVOS)
+    message("poços: ", sum(ativo), " ativos de ", nrow(df), " no mar; os demais ",
+            "(abandonados, arrasados, fechados...) saem da análise.")
+    df <- df[ativo, ]
   }
 
   col_lon <- achar_coluna(df, c("lon_dd", "longitude", "lon", "decimalLongitude",

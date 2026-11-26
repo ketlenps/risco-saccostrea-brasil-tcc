@@ -8,7 +8,7 @@ O trabalho é intitulado **"Análise do risco de introdução da ostra exótica 
 
 ## Sobre o trabalho
 
-A ostra *Saccostrea cucullata*, originária do Indo-Pacífico, foi introduzida na costa brasileira provavelmente pela água de lastro e pela bioincrustação em navios, e hoje já ocupa costões, manguezais e estruturas portuárias do Sudeste e do Sul. Neste trabalho, a adequabilidade ambiental da costa brasileira para a espécie foi estimada por um modelo de distribuição calibrado com registros de todo o mundo e quatro algoritmos combinados em um *ensemble* (biomod2). A adequabilidade foi combinada com a pressão exercida por portos, plataformas e poços de petróleo e gás para mapear o risco de introdução, que também foi avaliado nas ecorregiões marinhas, nos manguezais e em cenários de mudanças climáticas.
+A ostra *Saccostrea cucullata*, originária do Indo-Pacífico, foi introduzida na costa brasileira provavelmente pela água de lastro e pela bioincrustação em navios, e hoje já ocupa costões, manguezais e estruturas portuárias do Sudeste e do Sul. Neste trabalho, a adequabilidade ambiental da costa brasileira para a espécie foi estimada por um modelo de distribuição calibrado com registros de todo o mundo e quatro algoritmos combinados em um *ensemble* (biomod2). A adequabilidade foi combinada com a pressão exercida por portos, plataformas e poços ativos de petróleo e gás para mapear o risco de introdução, que também foi avaliado nas ecorregiões marinhas, nos manguezais e em cenários de mudanças climáticas.
 
 ## Conteúdo
 
@@ -28,7 +28,7 @@ O trabalho usou o R 4.3.3 com o pacote biomod2 4.3-4-6. Os dados de entrada não
 |---|---|---|
 | `dados/ocorrencias/` | Registros da espécie | Literatura brasileira; GBIF (gbif.org); OBIS (obis.org) |
 | `dados/ambientais/` | Variáveis ambientais, presente e cenários SSP | Bio-ORACLE v3 (Assis et al., 2024) |
-| `dados/antropicas/` | Portos; plataformas em operação e poços marítimos | ANTAQ; ANP (dados abertos) |
+| `dados/antropicas/` | Portos; plataformas em operação e poços marítimos (só os ativos entram na pressão) | ANTAQ; ANP (dados abertos) |
 | `dados/habitats/` | Manguezais | Atlas dos Manguezais do Brasil (ICMBio, 2018) |
 | `dados/limites/` | Estados do Brasil e linha de costa | IBGE (pacote geobr); GSHHG 2.3.7 |
 
