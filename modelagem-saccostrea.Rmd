@@ -529,7 +529,7 @@ classificar_substrato <- function(x) {
   x <- tolower(chartr("áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ",
                       "aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC", x))
   artificial <- "artific|porto|marina|pier|cais|molhe|quebra|estaleiro|boia|plataforma|casco|pilar|concreto|muro|ponte|trapiche|atracadouro"
-  natural <- "natural|costao|rocha|rochoso|mangue|raiz|praia|recife|seixo|cascalho"
+  natural <- "natural|costao|rocha|rochoso|matac|mangue|raiz|praia|recife|seixo|cascalho"
   ifelse(is.na(x) | x == "", NA_character_,
          ifelse(grepl(artificial, x), "artificial",
                 ifelse(grepl(natural, x), "natural", "outro")))
