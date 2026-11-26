@@ -2950,20 +2950,30 @@ if (RODAR_CLIMA) {
       mapas_mudanca_oc[[rotulo_fut]] <- mudanca_oc
     }
 
-    # Infraestruturas em costa adequada: hoje × futuro (só as que têm faixa
-    # costeira num raio de BUFFER_INFRA_KM, como no Módulo 12)
+    # Infraestruturas em área adequada: hoje × futuro, com as mesmas regras do
+    # Módulo 12: maior adequabilidade da faixa costeira num raio de
+    # BUFFER_INFRA_KM; em mar aberto (sem faixa costeira nesse raio), a
+    # adequabilidade no próprio ponto, lida do mapa do oceano do cenário.
     if (exists("v_infra_buf")) {
       a_fut <- terra::extract(adeq_fut, v_infra_buf, fun = max, na.rm = TRUE)[, 2]
       a_fut[!is.finite(a_fut)] <- NA
-      com_valor <- !is.na(tabela_infra$adeq_costa) & !is.na(a_fut)
+      mar_aberto <- tabela_infra$origem == "local (mar aberto)"
+      if (MAPA_OCEANO && any(mar_aberto)) {
+        a_fut[mar_aberto] <- terra::extract(adeq_fut_oc,
+                                            as.matrix(tabela_infra[mar_aberto, c("lon", "lat")]))[, 1]
+      }
+      com_valor <- !is.na(tabela_infra$adeq_usada) & !is.na(a_fut)
+      hoje_ok <- tabela_infra$adeq_usada >= limiar_global
+      fut_ok <- a_fut >= limiar_global
+      tipo_cv <- tabela_infra$tipo[com_valor]
       infra_futuro[[rotulo_fut]] <- data.frame(
         cenario = cen, decada = dec,
-        tipo = names(table(tabela_infra$tipo[com_valor])),
-        adequadas_hoje = as.vector(tapply(tabela_infra$adeq_costa[com_valor] >= limiar_global,
-                                          tabela_infra$tipo[com_valor], sum)),
-        adequadas_futuro = as.vector(tapply(a_fut[com_valor] >= limiar_global,
-                                            tabela_infra$tipo[com_valor], sum)),
-        total_com_valor = as.vector(table(tabela_infra$tipo[com_valor]))
+        tipo = names(table(tipo_cv)),
+        adequadas_hoje = as.vector(tapply(hoje_ok[com_valor], tipo_cv, sum)),
+        adequadas_futuro = as.vector(tapply(fut_ok[com_valor], tipo_cv, sum)),
+        mar_aberto_adequadas_hoje = as.vector(tapply((hoje_ok & mar_aberto)[com_valor], tipo_cv, sum)),
+        mar_aberto_adequadas_futuro = as.vector(tapply((fut_ok & mar_aberto)[com_valor], tipo_cv, sum)),
+        total_com_valor = as.vector(table(tipo_cv))
       )
     }
 
